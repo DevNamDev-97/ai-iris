@@ -85,9 +85,13 @@ export const VoiceCommandsGuide: React.FC = () => {
       </button>
 
       {isOpen && (
-        <div className="p-4 pt-1 border-t border-cyan-500/10 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-xs">
+        <div className="p-4 pt-1 border-t border-cyan-500/10 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-xs animate-dropdown-blur">
           {categories.map((cat, idx) => (
-            <div key={idx} className="p-3 rounded-xl bg-slate-800/40 border border-slate-700/50 flex flex-col justify-between">
+            <div
+              key={idx}
+              style={{ animationDelay: `${idx * 25}ms` }}
+              className="p-3 rounded-xl bg-slate-800/40 border border-slate-700/50 flex flex-col justify-between hover:border-cyan-500/40 transition-all duration-200 animate-item-blur dropdown-item-hover"
+            >
               <div>
                 <div className="flex items-center gap-1.5 font-semibold text-cyan-300 mb-2">
                   {cat.icon}

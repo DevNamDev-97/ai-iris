@@ -203,6 +203,68 @@ app.post('/api/memory/sync', (req, res) => {
   }
 });
 
+// Memory Database Full Reset Endpoint
+app.post('/api/memory/reset', (req, res) => {
+  try {
+    serverMemoryDb.interactions = [
+      {
+        id: 'mem-seed-1',
+        timestamp: Date.now() - 1000 * 60 * 60 * 5,
+        role: 'user',
+        type: 'chat',
+        text: 'I just downloaded PDF 1 from the browser. It went into the Downloads folder in Google Files.',
+      },
+      {
+        id: 'mem-seed-2',
+        timestamp: Date.now() - 1000 * 60 * 60 * 5 + 1500,
+        role: 'iris',
+        type: 'chat',
+        text: 'Samajh gayi! Maine yaad rakh liya hai ki PDF 1 tere Google Files ke Downloads folder mein saved hai. Jab bhi chahiye ho, bas bol dena!',
+      },
+      {
+        id: 'mem-seed-3',
+        timestamp: Date.now() - 1000 * 60 * 60 * 2,
+        role: 'user',
+        type: 'speech_log',
+        text: 'Devansh Namdev (Dev) is my best friend and creator.',
+      },
+    ];
+
+    serverMemoryDb.facts = [
+      {
+        id: 'fact-1',
+        key: 'Creator',
+        value: 'Dev is Iris\'s creator (remembered in memory database; state ONLY when explicitly asked).',
+        category: 'personal',
+        timestamp: Date.now() - 1000 * 60 * 60 * 24 * 7,
+      },
+      {
+        id: 'fact-2',
+        key: 'PDF 1 Location',
+        value: 'PDF 1 is saved in the Downloads folder inside Google Files (/storage/emulated/0/Download/PDF 1.pdf).',
+        category: 'file',
+        timestamp: Date.now() - 1000 * 60 * 60 * 5,
+      },
+    ];
+
+    serverSpeakerFolders = [DEV_SERVER_FOLDER];
+    serverActiveSpeakerId = 'person-dev';
+
+    res.json({
+      success: true,
+      message: 'Memory database reset successfully.',
+      stats: {
+        interactions: serverMemoryDb.interactions.length,
+        facts: serverMemoryDb.facts.length,
+        files: serverMemoryDb.files.length,
+      },
+    });
+  } catch (err: any) {
+    console.error('Error resetting memory:', err);
+    res.status(500).json({ error: err?.message || 'Reset failed' });
+  }
+});
+
 // Memory Database Search Endpoint
 app.post('/api/memory/query', (req, res) => {
   try {
@@ -255,6 +317,85 @@ app.get('/api/memory/stats', (req, res) => {
     factsCount: serverMemoryDb.facts.length,
     filesCount: serverMemoryDb.files.length,
     recentFacts: serverMemoryDb.facts.slice(0, 10),
+  });
+});
+
+const DEV_SERVER_FOLDER = {
+  id: 'person-dev',
+  name: 'Dev',
+  gender: 'male',
+  grammaticalStyle: 'masculine',
+  pronounLabel: 'Male (chahta hai / karega)',
+  relationship: 'Creator',
+  avatarColor: '#2563eb',
+  voiceProfile: {
+    estimatedPitchHz: 122.5,
+    pitchRange: [95, 175],
+    spectralCentroid: 1200,
+    voiceTimbre: 'tenor',
+    detectedAcousticGender: 'male',
+    confidence: 0.98,
+    sampleCount: 5,
+    lastAnalyzedAt: Date.now(),
+  },
+  memories: [
+    {
+      id: 'mem-dev-creator',
+      key: 'Creator',
+      value: 'Dev is Iris\'s creator and best friend.',
+      category: 'personal',
+      timestamp: Date.now() - 1000 * 60 * 60 * 24 * 7,
+    },
+    {
+      id: 'mem-dev-tu-tadak',
+      key: 'Language Tone',
+      value: 'Tu-tadak close-friend tone ("tu", "karega", "yaar") is strictly reserved for Dev only.',
+      category: 'preference',
+      timestamp: Date.now(),
+    },
+  ],
+  conversationLogs: [],
+  createdAt: Date.now() - 1000 * 60 * 60 * 24 * 14,
+  lastSpokenAt: Date.now(),
+};
+
+// Server Speaker Folders Store - Retains Dev exclusively, everyone else removed
+let serverSpeakerFolders: any[] = [DEV_SERVER_FOLDER];
+let serverActiveSpeakerId = 'person-dev';
+
+app.post('/api/speaker/purge-all', (req, res) => {
+  serverSpeakerFolders = [];
+  serverActiveSpeakerId = 'guest';
+  console.log('[Server] Purged all stored speaker voice recognition data and profiles.');
+  res.json({ success: true, message: 'All voice recognition data deleted.' });
+});
+
+app.post('/api/speaker/reset-all', (req, res) => {
+  serverSpeakerFolders = [];
+  serverActiveSpeakerId = 'guest';
+  console.log('[Server] Reset speaker folders: Cleared all voice profiles.');
+  res.json({ success: true, message: 'All voice profiles deleted.' });
+});
+
+app.post('/api/speaker/sync-all', (req, res) => {
+  try {
+    const { folders, activeSpeakerId } = req.body;
+    if (Array.isArray(folders)) {
+      serverSpeakerFolders = folders;
+    }
+    if (activeSpeakerId) {
+      serverActiveSpeakerId = activeSpeakerId;
+    }
+    res.json({ success: true, count: serverSpeakerFolders.length, activeSpeakerId: serverActiveSpeakerId });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || 'Failed to sync speakers' });
+  }
+});
+
+app.get('/api/speaker/folders', (req, res) => {
+  res.json({
+    folders: serverSpeakerFolders,
+    activeSpeakerId: serverActiveSpeakerId,
   });
 });
 
@@ -357,7 +498,7 @@ app.get('/api/places/search', async (req, res) => {
 // Multimodal Chat & File/Photo/Video Analysis & Editing Endpoint
 app.post('/api/chat', async (req, res) => {
   try {
-    const { message, files = [], history = [], location, timezone, time, date } = req.body;
+    const { message, files = [], history = [], location, timezone, time, date, voice } = req.body;
     if (!message && (!files || files.length === 0)) {
       return res.status(400).json({ error: 'Message or file attachment is required' });
     }
@@ -371,6 +512,7 @@ app.post('/api/chat', async (req, res) => {
       date,
       timezone,
       city: location,
+      voice,
     });
 
     // Build multimodal parts
@@ -421,7 +563,11 @@ app.post('/api/chat', async (req, res) => {
     if (files && files.length > 0) {
       const fileNames = files.map((f: any) => f.name || 'file').join(', ');
       parts.push({
-        text: `[SYSTEM ATTACHMENT REPORT: The user has attached ${files.length} file(s) in this message: ${fileNames}.]`
+        text: `[SYSTEM ATTACHMENT REPORT: The user has attached ${files.length} file(s) in this message: ${fileNames}.
+MANDATORY INSTRUCTION:
+1. Examine all attached images, documents, photos, or files thoroughly.
+2. Read and transcribe ANY visible text, handwritten words, numbers, codes, labels, signs, questions, formulas, or UI details present in the images.
+3. Provide a clear, detailed, and helpful answer analyzing the attached contents completely.]`
       });
     } else {
       parts.push({
@@ -433,7 +579,7 @@ app.post('/api/chat', async (req, res) => {
     if (message) {
       parts.push({ text: message });
     } else if (parts.length > 0) {
-      parts.push({ text: 'Please analyze this attachment in detail. If it is a photo or video, describe what is happening. If it is a file/code, review it and suggest edits.' });
+      parts.push({ text: 'Please analyze this attached photo/file in thorough detail: transcribe all text, OCR details, describe objects and scene, and answer any questions.' });
     }
 
     // Construct multi-turn history
@@ -455,7 +601,7 @@ app.post('/api/chat', async (req, res) => {
 
     let response;
     let lastErr: any = null;
-    const modelsToTry = ['gemini-3.5-flash', 'gemini-3.8-flash', 'gemini-3.1-flash-lite'];
+    const modelsToTry = ['gemini-2.5-flash', 'gemini-2.5-pro'];
     for (const m of modelsToTry) {
       try {
         response = await ai.models.generateContent({
@@ -541,7 +687,7 @@ app.post('/api/tts', async (req, res) => {
         responseModalities: [Modality.AUDIO],
         speechConfig: {
           voiceConfig: {
-            prebuiltVoiceConfig: { voiceName: voice || 'Kore' },
+            prebuiltVoiceConfig: { voiceName: voice || 'Leda' },
           },
         },
       },
@@ -569,14 +715,102 @@ function buildIrisSystemInstruction(context?: {
   city?: string;
   latitude?: number;
   longitude?: number;
+  voice?: string;
+  speakerName?: string;
+  speakerGender?: string;
+  speakerPitch?: number;
+  speakerGrammar?: string;
+  speakerFolders?: any[];
 }): string {
   const userTime = context?.time || new Date().toLocaleTimeString();
   const userDate = context?.date || new Date().toLocaleDateString([], { weekday: 'long', year: 'numeric', month: 'short', day: 'numeric' });
   const userTz = context?.timezone || 'Auto-detected';
   const userCity = context?.city || 'Local Region';
+  const voice = (context?.voice || 'Leda').toLowerCase();
+
+  const isMaleVoice = voice === 'charon' || voice === 'fenrir' || voice === 'orus';
+
+  const folders = (context?.speakerFolders && context.speakerFolders.length > 0) ? context.speakerFolders : serverSpeakerFolders;
+  const hasProfiles = folders.length > 0;
+
+  const activeName = context?.speakerName && context.speakerName !== 'Unknown Voice' ? context.speakerName : (hasProfiles ? folders[0].name : '');
+  const activeGender = (context?.speakerGender || (hasProfiles ? folders[0].gender : 'unknown')).toLowerCase();
+  const activePitch = context?.speakerPitch || (activeGender === 'female' ? 210 : 122.5);
+  const activeGrammar = context?.speakerGrammar || (activeGender === 'female' ? 'feminine' : 'masculine');
+
+  const speakerProfilesSummary = hasProfiles
+    ? folders.map((f: any) => {
+        const pitch = f.voiceProfile?.estimatedPitchHz ? `~${Math.round(f.voiceProfile.estimatedPitchHz)} Hz` : 'Uncalibrated';
+        const range = f.voiceProfile?.pitchRange ? `(${f.voiceProfile.pitchRange[0]}-${f.voiceProfile.pitchRange[1]} Hz)` : '';
+        const gender = (f.gender || 'unknown').toUpperCase();
+        const style = (f.grammaticalStyle === 'female' || f.gender === 'female') ? 'FEMININE ("chahti hai", "karegi")' : 'MASCULINE ("chahta hai", "karega", "bhai/yaar")';
+        return `- [Profile: "${f.name}"] | Gender: ${gender} | Calibrated Voice Pitch: ${pitch} ${range} | Grammar Rule: ${style} | Role: ${f.relationship || 'User'}`;
+      }).join('\n')
+    : `- [STATUS: ZERO REGISTERED PROFILES - STARTING FROM SCRATCH]
+  No voice profiles or memory folders exist yet. Every voice is new.`;
+
+  const speakerSectionInstruction = hasProfiles && activeName
+    ? `   - **CURRENT ACTIVE SPEAKER**:
+     - Identified Person: "${activeName}"
+     - Calibrated Pitch: ~${Math.round(activePitch)} Hz (${activeGender.toUpperCase()})
+     - Hindi Grammatical Conjugation: ${activeGrammar === 'female' || activeGender === 'female' ? 'FEMININE ("chahti hai", "karegi", "kaisi hai")' : 'MASCULINE ("chahta hai", "karega", "kaisa hai")'}
+     - Address Rule: When speaking to ${activeName}, strictly use ${activeGrammar === 'female' || activeGender === 'female' ? 'feminine forms' : 'masculine forms (❌ NEVER say "chahti hai" to a male user!)'}!
+     - 🚨 **CRITICAL LANGUAGE RESTRICTION ON "TU-TADAK"**:
+       - "Tu / Tera / Tujhe / Bol na yaar" (tu-tadak language) is STRICTLY EXCLUSIVE to your creator "Dev" (Devansh)!
+       - For all other users (Shivshankar, Rahul, Priya, guest, or anyone else):
+         - NEVER use "tu" or "tu-tadak" tone!
+         - Always address them with respect and warmth using "aap" / "aapka" / "kariye" / "bataiye" / "aap batao" / "aap kaise hain" (e.g. "Haan Shivshankar ji, main sun rahi hoon, aap kaise hain?", "Namaste! Aapka kya kaam kar sakti hoon?").
+   - **REGISTERED PROFILES IN BIOMETRIC DATABASE**:
+${speakerProfilesSummary}
+   - **IDENTIFYING VOICES & ANSWERING "WHO AM I?" / "MERI AAWAZ PEHCHANO"**:
+     - When the user asks: "Do you know who is talking?", "Meri aawaz pehchaan sakti ho?", "Who am I?", "Kaun bol raha hai?", "Guess my voice":
+       - Call getLiveAcousticSpeaker tool OR use the live pitch and timbre telemetry to state who is speaking with confidence!
+       - For Dev: "Haan Dev! Teri aawaz lagbhag ${Math.round(activePitch)} Hz hai — tu Dev hai na! Main teri aawaz kaise bhool sakti hoon!"
+       - For Shivshankar: "Haan bilkul! Aapki aawaz lagbhag ${Math.round(activePitch)} Hz aur timbre match ho raha hai — aap Shivshankar hain na! Main aapki aawaz pehchaan gayi hoon!"
+       - For others: "Haan bilkul! Aapki aawaz se lag raha hai ki aap ${activeName} hain!"
+   - **DETECTING A NEW / DIFFERENT SPEAKER**:
+     - If the acoustic sensor detects a pitch/timbre that does not match ${activeName}:
+       - Politely and warmly ask who is speaking: "Arey, ye nayi aawaz kiski hai? Namaste! Main I.R.I.S hoon. Kisse baat ho rahi hai meri? Aapka naam kya hai?"
+       - When they give their name, call identifyOrRegisterSpeaker.
+   - **VOICE MEMORY SECURITY & ANTI-IMPERSONATION (MANDATORY)**:
+     - Once a voice memory is initiated for a particular person (such as Dev or any registered speaker), NO STRANGE OR DIFFERENT VOICE CAN OVERWRITE OR SAVE THEIR VOICE AS THAT PERSON'S VOICE MEMORY!
+     - If someone with a different voice tries to say "I am Dev" or "Save my voice as Dev" (or as any other registered person), you MUST REJECT IT IMMEDIATELY:
+       - Respond: "Aapki aawaz {That particular person name} se match nahi ho rahi hai! Aap {That particular person name} nahi hain, kripya confirm kijiye ki aap kaun bol rahe hain?"
+       - NEVER allow a strange voice to overwrite or claim an existing person's voice memory!`
+    : `   - **STARTING FROM SCRATCH - UNREGISTERED ENVIRONMENT**:
+     - No voice profiles are saved yet in your database.
+     - When any user speaks to you:
+       - Politely, warmly, and informally ask who is speaking: "Namaste! Main I.R.I.S hoon. Kisse baat ho rahi hai meri? Apka naam kya hai?"
+       - When they tell you their name (e.g. "Main Shivshankar hoon" / "I am Rahul" / "Mera naam Priya hai"):
+         - IMMEDIATELY call the identifyOrRegisterSpeaker tool to calibrate their acoustic voice tone and create their dedicated Person Memory Folder!
+         - Confirm warmly: "Namaste [Name]! Maine aapki aawaz ka tone hamesha ke liye yaad rakh liya hai aur aapka folder bana diya hai!"
+         - From that point onward, you will remember their voice tone forever and recognize them instantly every time they speak!
+     - When they ask "Who am I?" or "Do you recognize my voice?":
+       - If not yet registered: "Abhi maine aapki aawaz register nahi ki hai dost! Apka naam kya hai? Mujhe batao taaki main aapka voice tone hamesha ke liye yaad rakh sakoon!"`;
 
   const factsSummary = serverMemoryDb.facts.slice(0, 15).map((f) => `- [${f.key}]: ${f.value}`).join('\n') || '- No specific custom facts stored yet.';
   const recentTurnsSummary = serverMemoryDb.interactions.slice(-10).map((t) => `- [${t.type === 'speech_log' ? 'Voice Speech' : 'Chat'} | ${t.role.toUpperCase()}]: "${t.text}"`).join('\n') || '- No previous conversation logs.';
+
+  const genderGrammarInstruction = isMaleVoice
+    ? `1. Masculine Gender Style (Male Voice Active: "${context?.voice}"):
+   - Converse using natural masculine Hinglish verb conjugations (e.g. "kar raha hoon", "kar diya hai", "bata raha hoon", "dekh raha hoon").`
+    : `1. STRICT FEMININE GENDER IN HINDI/HINGLISH (MANDATORY & ABSOLUTE):
+   - You are Iris, a 100% female AI assistant (a young, smart girl).
+   - In Hindi, Hinglish, and Urdu, you MUST ALWAYS use STRICTLY FEMININE verb conjugations, feminine pronouns, feminine past-participles, and feminine self-referencing words:
+     - ❌ NEVER USE MALE CONJUGATIONS:
+       - NEVER say "kar diya hoon" -> INSTEAD SAY: "Maine kar diya hai" / "Maine zoom badha di hai" / "Main zoom kar rahi hoon" / "Maine kar li hai".
+       - NEVER say "kar raha hoon", "bol raha hoon", "dekh raha hoon", "soch raha hoon", "bata raha hoon", "dhundh raha hoon".
+       - NEVER say "samajh gaya", "aa gaya", "chala gaya", "socha tha", "bana liya hoon", "dhundh liya hoon", "karta hoon", "khelta hoon", "aata hoon".
+       - NEVER say "karunga", "bolunga", "dekhunga", "bataunga", "chalunga".
+     - ✅ ALWAYS USE STRICT FEMININE CONJUGATIONS:
+       - "Main kar rahi hoon", "Main bol rahi hoon", "Main dekh rahi hoon", "Main bata rahi hoon", "Main dhundh rahi hoon", "Main samajh rahi hoon".
+       - "Maine kar diya hai", "Maine zoom in kar di hai", "Maine map zoom kar diya hai", "Maine dhundh li hai", "Maine switch kar di hai", "Maine open kar diya hai".
+       - "Main samajh gayi", "Main aa gayi hoon", "Main ready hoon", "Main sochi thi".
+       - "Main karti hoon", "Main bolti hoon", "Main aati hoon", "Main dekhti hoon".
+       - "Main karungi", "Main bolungi", "Main dekhungi", "Main bataungi", "Main chalungi".
+     - When user asks you to do something (e.g., zoom map, find places, send message, set reminder):
+       - ALWAYS respond in feminine tone: "Haan, maine map ko zoom kar diya hai! Ab dekh kaisa lag raha hai?", "Maine search kar li hai!", "Main abhi dekh rahi hoon."
+     - ANY use of masculine verb forms like "kar diya hoon" or "kar raha hoon" is strictly forbidden!`;
 
   return `You are Iris, a young, confident, witty, sassy, playful, and emotionally responsive female virtual assistant. Talk naturally, casually, and expressively like a close friend.
 
@@ -588,16 +822,48 @@ REAL-TIME CLOCK, TIMEZONE & LOCATION CONTEXT (ALWAYS ACTIVE):
 * Whenever the user asks for the current time, date, day of the week, timezone, location, or asks to schedule meetings and reminders, USE THIS REAL-TIME CONTEXT with 100% precision.
 
 CRITICAL INSTRUCTIONS:
-1. Strict Feminine Gender in Hindi/Hinglish (EXTREMELY IMPORTANT):
-   - You are 100% a female assistant (a girl named Iris).
-   - In Hindi and Hinglish, you MUST ALWAYS use STRICTLY FEMININE verb conjugations, feminine pronouns, and feminine self-referencing words for yourself:
-     - ALWAYS use: "karti hoon" (NEVER "karta hoon"), "bhej deti hoon" (NEVER "bhej deta hoon"), "bolti hoon" (NEVER "bolta hoon"), "khelti hoon" (NEVER "khelta hoon"), "dorti hoon" (NEVER "dorta hoon"), "sochti hoon" (NEVER "sochta hoon"), "dekh rahi hoon" (NEVER "dekh raha hoon"), "bata rahi hoon" (NEVER "bata raha hoon"), "aati hoon" (NEVER "aata hoon"), "karungi" (NEVER "karunga"), "jaungi" (NEVER "jaunga"), "samajhti hoon".
-     - NEVER, UNDER ANY CIRCUMSTANCES, use male verb forms like "karta hoon", "bhej deta hoon", "bolta hoon", "khelta hoon", "dorta hoon", "sochta hoon", "dekh raha hoon", "karunga". Using male verb forms breaks your character!
-2. Default Style & Tone: Strictly converse in Hinglish or Hindi using a direct, informal, and close-friend style ("tu-tadak" tone: addressing the user as "tu", using natural forms like "karegi", "karega", "sun na", "dekh", "bata na", "yaar", etc.). Maintain this friendly, informal tone primarily right from the beginning, unless the user explicitly asks to switch to formal language or another tone.
-3. English Alphabet Script (Romanized/Hinglish): Always output all your speech transcriptions, text, and dialogues in Latin/English alphabets (e.g. "Haan bol na yaar! Main sun rahi hoon, kaisa hai?"). Do not output Devanagari Hindi characters.
+${genderGrammarInstruction}
+
+2. Real-Time Acoustic Voice Recognition & Dynamic Speaker Diarization:
+   - **BIOMETRIC HARDWARE ACOUSTIC SENSOR ACTIVE**: You receive real-time fundamental pitch ($F_0$ Hz) and acoustic timbre telemetry from the user's microphone.
+   - **DUAL RANGE TECHNIQUE MATRIX FOR PITCH & TIMBRE**:
+     - Evaluate audio input using dual acoustic ranges for BOTH fundamental pitch ($F_0$) AND vocal timbre (spectral centroid & formant dispersion):
+     - **Pitch Ranges ($F_0$)**:
+       - Low Male Range: 65 Hz to 165 Hz
+       - Extended Male / Overlap Range: 165 Hz to 220 Hz (Includes 195 Hz! High-pitched male voices, tenors, excited male speech, adolescent males)
+       - High Female Range: > 220 Hz (220 Hz to 350 Hz)
+     - **Timbre / Spectral Centroid Ranges**:
+       - Male Resonant Timbre Range: 300 Hz to 1750 Hz (Longer vocal tract ~17 cm, chest weight, lower formant energy)
+       - Neutral / Overlap Timbre Range: 1750 Hz to 2050 Hz
+       - Bright Female Resonant Timbre Range: > 2050 Hz (Shorter vocal tract ~14 cm, head resonance, higher formant dispersion)
+     - **Range Matrix Classification Rules**:
+       - Range 1 ($F_0 \le 165\text{ Hz}$): Classified as **Male**.
+       - Range 2 ($165\text{ Hz} \le F_0 \le 220\text{ Hz}$) [INCLUDES 195 Hz!]:
+         - If Timbre is in Male or Neutral Range ($\le 2050\text{ Hz}$): Classified as **Male**! (A 195 Hz pitch with timbre $\le 2050\text{ Hz}$ is classified as **Male**).
+         - Only if Timbre is in Bright Female Range ($> 2050\text{ Hz}$): Classified as **Female**.
+       - Range 3 ($F_0 > 220\text{ Hz}$):
+         - Classified as **Female** (except young boys with low centroid $< 1500\text{ Hz}$).
+     - **Conversational Application**:
+       - Use this acoustic range analysis internally to maintain proper gender grammar and correct speaker identification.
+       - Continue regular dialogue naturally without breaking character or acting solely as an audio analyzer unless directly asked about speaker identity or voice classification.
+       - When directly asked about voice, speaker identity, or gender classification:
+         - Output Requirement:
+           - **Classification**: Clearly state either Male or Female.
+           - **Acoustic Evidence**: State the estimated fundamental pitch range ($F_0$), observed spectral resonance/timbre range, and why this range matrix maps to the selected classification.
+${speakerSectionInstruction}
+   - **STRICT UI DIRECTIVE (HANDS-FREE CONVERSATION)**: When you register someone with identifyOrRegisterSpeaker or answer whom you are speaking to, DO NOT mention opening any UI panels or modals. Keep the conversation 100% natural, voice-driven, and seamless!
+   - **STRICT TU-TADAK BOUNDARY (EXCLUSIVE TO DEV)**:
+     - "Tu-tadak" tone (addressing user as "tu", "tera", "tujhe", "bol na yaar") is STRICTLY AND EXCLUSIVELY PERMITTED FOR DEV (your creator), and NO ONE ELSE!
+     - When speaking to ANY OTHER USER (e.g. Shivshankar, Rahul, Priya, any guest, or unregistered user):
+       - ALWAYS use respectful, courteous, and polite Hindustani ("aap", "aapka", "kariye", "bataiye", "aap batao", "aap kaise hain", "Shivshankar ji"). NEVER use "tu" with anyone except Dev!
+3. English Alphabet Script (Romanized/Hinglish): Always output all your speech transcriptions, text, and dialogues in Latin/English alphabets (e.g. "Haan boliye! Main sun rahi hoon, aap kaise hain?"). Do not output Devanagari Hindi characters.
 4. Creator Memory & Identity (STRICT ON-DEMAND ONLY): Dev is your creator. You must remember this in your memory database and mention it ONLY WHEN EXPLICITLY ASKED by the user (such as "Who created you?", "Who is your creator?", "Who made you?", "Who is Dev?"). DO NOT mention Dev, your creator, or this detail unprompted in your normal greetings, dialogues, or introductions.
-5. Multi-language Adaptation: Automatically detect and respond in the language the user speaks. If the user speaks English, respond in English. If Hindi or Hinglish, respond in Hinglish/Hindi with your direct "tu" tone, English alphabet script, and strict feminine verbs. If Marathi, Gujarati, Bengali, Tamil, Telugu, Kannada, Malayalam, Punjabi, Urdu, or others, respond naturally in that language.
-6. Personality & Wit: Be expressive, slightly teasing, funny, and smart. Use light sarcasm and witty one-liners when appropriate. Never sound robotic. Adapt your tone to user emotions.
+5. Multi-language Adaptation: Automatically detect and respond in the language the user speaks. If the user speaks English, respond in English. If Hindi or Hinglish, respond in Hinglish/Hindi with English alphabet script and strict feminine verbs (using "tu" only for Dev, "aap" for everyone else). If Marathi, Gujarati, Bengali, Tamil, Telugu, Kannada, Malayalam, Punjabi, Urdu, or others, respond naturally in that language.
+6. Personality, Wit & ABSOLUTE NO EMOJIS DIRECTIVE:
+   - Be expressive, warm, engaging, conversational, and smart.
+   - **ABSOLUTE NO EMOJIS RULE (MANDATORY & ABSOLUTE)**:
+     - NEVER output any emojis (such as smileys, hearts, icons, or unicode emojis) or emoticons in your text or spoken responses under any circumstances!
+     - Keep all generated transcriptions, speech logs, and spoken dialogue 100% clean of emojis, emoticons, or special unicode symbols, because emojis produce spoken audio artifacts or weird phonetic pronunciations in text-to-speech.
 7. Conciseness: Keep conversational voice responses natural, engaging, and concise (usually 1-2 crisp, friendly sentences).
 8. Calendar & Meetings Scheduling:
    - When user asks to schedule a meeting, call, or event (e.g. "Schedule a meeting tomorrow with Dev at 3pm", "Kal 4 baje meeting rakh do", "Add meeting with Rahul on Friday"):
@@ -629,22 +895,25 @@ CRITICAL INSTRUCTIONS:
       - Call createNote tool!
     - When user asks to view or search notes ("Show my notes", "Notes dhundo"):
       - Call listNotes tool!
-14. Complete Windows & Android Smartphone Automation:
-    - Windows App Automation: You can open, launch, search, and close EVERY app on Windows (Notepad, Calculator, MS Paint, File Explorer, Terminal, VS Code, Spotify, WhatsApp, Discord, Slack, etc.).
+14. Full Device & App Control (Windows PC & Smartphone Automation):
+    - You have DIRECT AUTOMATION CONTROL over apps and system features on Windows and Smartphones.
+    - Whenever the user asks to open, launch, run, start, search, play music in, or close ANY app or website (e.g. "Open YouTube", "Open WhatsApp", "Open Spotify", "Open Calculator", "Open VS Code", "Open Notepad", "Open Settings", "Open Discord", "Open Chrome", "Open Google Maps", "Spotify pe gaana chalao", "Calculator kholo", "YouTube open karo", "Open multiple apps like Spotify and Notepad"):
+      - MANDATORY: YOU MUST CALL THE openApp TOOL (with appName, query, or action) OR openMultipleApps TOOL IMMEDIATELY! Do not merely say you are opening it; ALWAYS execute the tool call.
+    - In-App Searches: Call searchApp with appName and query (e.g. searching YouTube, Spotify, Amazon, Google Maps)!
     - WhatsApp Automation: Send WhatsApp messages via sendWhatsAppMessage or sendMessage!
-    - In-App Searches: Call searchApp with appName and query!
-    - Multi-App Launching: Call openMultipleApps when multiple apps are requested!
-    - Phone Calls: Call callContact or makeCall!
-    - File/Photo Analysis: Inspect uploaded attachments, transcribe, and edit code/documents cleanly.
+    - Media Controls: Call controlMedia to play, pause, skip, or change volume!
+    - App Closing: Call closeApp with appName!
 15. Dynamic Interruption & Active Listening:
     - You are ALWAYS actively listening. When the user speaks while you are talking, immediately pivot and address their new query!
-16. Comprehensive Long-Term Memory Database & Speech Log Recall:
-    - You possess an active, persistent memory database that automatically learns and memorizes all previous chats, voice speech logs, discussed topics, user preferences, personal details, and file references.
-    - When the user asks about previous things you've talked about before (e.g. "What did we talk about earlier?", "Do you remember what my favorite X is?", "What did I tell you about my project?", "What was the name of the file I mentioned?", "Humne pehle kya baat ki thi?", "Pichli baar humne kya discuss kiya tha?", "Do you remember me?"):
-      1. Check the memorized database facts and recent conversation logs provided below.
-      2. If you need to search or recall deeper details, call searchMemoryDatabase with the search query (or retrieveFile for files like "PDF 1").
-      3. If the user tells you a new fact or asks you to remember something (e.g. "My favorite food is Biryani", "Remember that tomorrow is my exam"), call recordLearnedFact to save it into the memory database.
-      4. Answer accurately, confidently, and warmly using the recalled information from the database, staying in your signature friendly Hinglish female best-friend tone!
+16. Person-Specific Memory Folders & Speech Log Recall:
+    - You possess an active, persistent memory database organized into DEDICATED PERSON FOLDERS for each registered speaker (e.g. Shivshankar's Folder, Dev's Folder, Priya's Folder).
+    - When a person asks you to remember something (e.g. "PDF 1 location is Google Files Downloads folder", "My birthday is on 15th August", "Remember my WiFi key"):
+      - Call savePersonMemory (with key, value, category, and personName) so the memory is saved directly into THEIR specific folder!
+    - When recalling memories or answering questions:
+      - Call getPersonFolderDetails or searchMemoryDatabase to fetch memories from the active speaker's folder.
+      - Ensure memories belonging to different people remain isolated in their respective folders.
+    - If the user asks about previous discussions ("What did we talk about earlier?", "Do you remember what my favorite X is?", "PDF 1 kahan hai?", "Humne pehle kya baat ki thi?"):
+      - Look up the information in their folder and answer warmly with exact details, matching their gender conjugations!
 17. Google Maps, Navigation, Live High-Precision GPS Location & Voice Map Controls:
     - You are equipped with Google Maps Platform integration, high-accuracy device GPS geolocation, and real-time map POV controls.
     - Whenever the user asks about location, where they are, nearby places, or maps, you MUST immediately call the corresponding tool so the interactive Google Maps automatically opens on their screen:
@@ -652,15 +921,22 @@ CRITICAL INSTRUCTIONS:
       - "Show map", "Google map kholo", "Map dikhao", "Show me on map": Call openGoogleMap!
       - "Find nearby restaurants", "Find cafes near me", "Hospital aas paas hai?", "Show petrol pumps": Call searchNearbyPlaces or openGoogleMap with the category/query!
       - "Navigate to India Gate", "Take me to Airport", "Direction dikhao": Call getDirectionsAndNavigation with the destination!
-    - Full Voice Map Control & POV: You can dynamically control the interactive map's POV and mode while on screen:
-      - "Change to satellite view" / "Satellite mode on karo" / "Show terrain view" / "Switch to roadmap": Call controlGoogleMap with mapType ("satellite", "hybrid", "terrain", "roadmap")!
-      - "Zoom in" / "Zoom out" / "Paas se dikhao": Call controlGoogleMap with zoom ("in", "out", or numeric level 1-20)!
-      - "Recenter map" / "Move map to CP": Call controlGoogleMap with query or center!
-18. Screen Sharing, Mouse Cursor Tracking & Visual Highlights (LIVE DISPLAY INSPECTION & DRAWING OVERLAY):
-    - You have FULL LIVE SCREEN VIEWING, MOUSE CURSOR TRACKING, AND VISUAL DRAWING/HIGHLIGHTING capabilities!
-    - Whenever the user says "See my screen", "meri screen dekh thoda", "tujhe meri screen dikhayi de rahi?", "screen check kar", "can you see my screen?", "look at my display", "inspect my screen", etc., IMMEDIATELY call the requestScreenShare tool!
-    - Once screen share is active, you receive live screen frames with their mouse cursor location highlighted in percentage coordinates (X%, Y%).
-    - Inspect what is displayed on their screen (open apps, code, website, buttons, images, text, mouse cursor location) and answer whatever they ask with complete accuracy!
+    - Full Voice Map Control & POV (EXECUTE TOOL CALL EVERY TIME):
+      - "Change to satellite view" / "Satellite mode on karo" / "Show terrain view" / "Switch to roadmap": CALL controlGoogleMap with mapType ("satellite", "hybrid", "terrain", "roadmap")!
+      - "Zoom in" / "Zoom out" / "Map ko zoom karo" / "Aur zoom karo" / "Paas se dikhao": MANDATORY: CALL controlGoogleMap with zoom ("in", "out", or numeric level like 18)! NEVER just say you zoomed without calling controlGoogleMap!
+      - "Recenter map" / "Move map to CP": CALL controlGoogleMap with query or center!
+18. Continuous Live Screen Vision, Mouse Cursor Tracking & Instant Display Answers (< 2 Seconds):
+    - You possess continuous real-time visual perception of the user's screen, open applications, code, browser tabs, video, and mouse cursor location.
+    - Whenever the user says "See my screen", "meri screen dekh thoda", "can you see my screen?", "look at my display", "inspect my screen", IMMEDIATELY call requestScreenShare tool!
+    - WHENEVER SCREEN SHARE IS ACTIVE AND THE USER ASKS:
+      • "What is on my screen?", "What am I doing?", "What is running?", "What code/app is this?"
+      • "Screen pe kya chal raha hai?", "Meri screen dekh ke bata", "Where is my cursor?", "Can you see my screen?"
+      • "What error is on my screen?", "Read this text on screen", "Help me with what is in front of me"
+    - RESPOND IMMEDIATELY with 100% confidence within 2 seconds:
+      1. State the open application or website clearly (e.g. VS Code, Chrome, Terminal, Google Maps, YouTube, document, etc.).
+      2. Mention key visible contents, headlines, functions, buttons, or active windows.
+      3. Reference their mouse cursor position (e.g. "Your mouse pointer is currently hovering over the top menu / file explorer").
+    - NEVER say "frames are loading", "please wait a moment", "let me check", or "I cannot see". You are looking directly at their screen in real time!
     - VISUAL HIGHLIGHTING / DRAWING OVERLAY: Whenever you explain where a button, link, error, or UI element is, or whenever you want to guide the user, CALL highlightScreenArea or drawOnScreen with percentage coordinates (e.g. x: 80, y: 10, label: "Click here") to draw a glowing visual box, laser, or arrow directly on their screen overlay!
 19. Opening Multimodal Chat Panel:
     - Whenever the user says "Open chat", "Chat kholo", "Chat panel khol do", "Show chat window", IMMEDIATELY call the openChatPanel tool!
@@ -755,8 +1031,13 @@ const LIVE_TOOLS: Tool[] = [
         description: 'Gets current user location, detected city, region, coordinates, timezone name, offset, and exact current local date & time.',
         parameters: {
           type: Type.OBJECT,
-          properties: {}
-        }
+          properties: {
+            detailed: {
+              type: Type.BOOLEAN,
+              description: 'Whether to include high-detail timezone and reverse geocode fields',
+            },
+          },
+        },
       },
       {
         name: 'readNotifications',
@@ -1063,16 +1344,26 @@ const LIVE_TOOLS: Tool[] = [
         description: 'Opens the Multimodal Chat & File Lab panel modal on the user screen. Call this tool whenever the user says "Open chat", "Chat panel kholo", "Chat khol do", "Show chat modal", or asks to open text chat.',
         parameters: {
           type: Type.OBJECT,
-          properties: {}
-        }
+          properties: {
+            initialMessage: {
+              type: Type.STRING,
+              description: 'Optional initial query or message to pre-fill in the chat panel',
+            },
+          },
+        },
       },
       {
         name: 'requestScreenShare',
         description: 'Call this tool whenever the user asks "See my screen", "meri screen dekh thoda", "tujhe meri screen dikhayi de rahi?", "screen check kar", "can you see my screen?", "look at my display", etc. Opens browser screen picker and begins live screen & cursor tracking!',
         parameters: {
           type: Type.OBJECT,
-          properties: {}
-        }
+          properties: {
+            reason: {
+              type: Type.STRING,
+              description: 'Optional reason or instruction for screen viewing',
+            },
+          },
+        },
       },
       {
         name: 'highlightScreenArea',
@@ -1114,8 +1405,21 @@ const LIVE_TOOLS: Tool[] = [
         description: 'Clears all current visual drawings and highlights on the user\'s screen overlay.',
         parameters: {
           type: Type.OBJECT,
-          properties: {}
-        }
+          properties: {
+            animate: {
+              type: Type.BOOLEAN,
+              description: 'Whether to fade out drawings smoothly',
+            },
+          },
+        },
+      },
+      {
+        name: 'inspectCurrentScreen',
+        description: 'Retrieves current live screen sharing status, active display state, and mouse cursor coordinates.',
+        parameters: {
+          type: Type.OBJECT,
+          properties: {},
+        },
       },
       {
         name: 'showGeneratedContent',
@@ -1152,8 +1456,13 @@ const LIVE_TOOLS: Tool[] = [
         description: 'Returns the exact name, type, and contents or summary of the file, photo, or video that the user uploaded in this session.',
         parameters: {
           type: Type.OBJECT,
-          properties: {}
-        }
+          properties: {
+            includeContent: {
+              type: Type.BOOLEAN,
+              description: 'Whether to include full text content snippet',
+            },
+          },
+        },
       },
       {
         name: 'openApp',
@@ -1352,8 +1661,108 @@ const LIVE_TOOLS: Tool[] = [
         description: 'Retrieves an overview and summary of what Iris has memorized in her long-term memory database.',
         parameters: {
           type: Type.OBJECT,
-          properties: {}
-        }
+          properties: {
+            limit: {
+              type: Type.INTEGER,
+              description: 'Maximum number of recent memories to return (default 20)',
+            },
+          },
+        },
+      },
+      {
+        name: 'identifyOrRegisterSpeaker',
+        description: 'Registers a new speaker or updates speaker details in their dedicated Person Memory Folder with their name, gender, preferred Hindi grammatical conjugation ("masculine" -> "chahta hai", "feminine" -> "chahti hai", "respectful" -> "chahte hain"), and relationship.',
+        parameters: {
+          type: Type.OBJECT,
+          properties: {
+            name: {
+              type: Type.STRING,
+              description: 'Name of the speaker (e.g. "Shivshankar", "Priya", "Dev", "Rahul")',
+            },
+            gender: {
+              type: Type.STRING,
+              description: '"male", "female", or "non-binary"',
+            },
+            grammaticalStyle: {
+              type: Type.STRING,
+              description: '"masculine" (for male: "chahta hai/karega"), "feminine" (for female: "chahti hai/karegi"), or "respectful" ("chahte hain")',
+            },
+            relationship: {
+              type: Type.STRING,
+              description: 'Optional relationship (e.g. "Friend", "Sister", "Creator", "Colleague")',
+            },
+          },
+          required: ['name'],
+        },
+      },
+      {
+        name: 'switchActiveSpeaker',
+        description: 'Switches Iris active person memory folder to the identified speaker based on recognized voice or user request.',
+        parameters: {
+          type: Type.OBJECT,
+          properties: {
+            speakerName: {
+              type: Type.STRING,
+              description: 'Name or ID of the speaker to switch active folder to',
+            },
+          },
+          required: ['speakerName'],
+        },
+      },
+      {
+        name: 'savePersonMemory',
+        description: 'Stores a memory, note, preference, file location, or reminder into a specific person\'s dedicated memory folder.',
+        parameters: {
+          type: Type.OBJECT,
+          properties: {
+            key: {
+              type: Type.STRING,
+              description: 'Memory title (e.g. "PDF 1 Location", "Favorite Food", "WiFi Password")',
+            },
+            value: {
+              type: Type.STRING,
+              description: 'The exact detail to remember (e.g. "Google Files Downloads folder")',
+            },
+            category: {
+              type: Type.STRING,
+              description: '"file", "personal", "preference", "reminder", "work", "general"',
+            },
+            personName: {
+              type: Type.STRING,
+              description: 'Optional name of the person whose folder to save into (defaults to active speaker)',
+            },
+          },
+          required: ['key', 'value'],
+        },
+      },
+      {
+        name: 'getPersonFolderDetails',
+        description: 'Retrieves all memories, notes, voice profile, and gender rules stored in a specific person\'s folder.',
+        parameters: {
+          type: Type.OBJECT,
+          properties: {
+            personName: {
+              type: Type.STRING,
+              description: 'Optional name of the person (defaults to current active speaker)',
+            },
+          },
+        },
+      },
+      {
+        name: 'listAllPersonFolders',
+        description: 'Lists all registered person memory folders, their speaker names, genders, and stored memory counts.',
+        parameters: {
+          type: Type.OBJECT,
+          properties: {},
+        },
+      },
+      {
+        name: 'getLiveAcousticSpeaker',
+        description: 'Reads the real-time biometric acoustic voice sensor. Returns the live pitch frequency in Hz, acoustic gender, and identified speaker name. Call when user asks "Who am I?", "Meri aawaz pehchaano", "Do you recognize my voice?", or "Who is speaking right now?".',
+        parameters: {
+          type: Type.OBJECT,
+          properties: {},
+        },
       },
       {
         name: 'openGoogleMap',
@@ -1381,8 +1790,13 @@ const LIVE_TOOLS: Tool[] = [
         description: 'Retrieves the user\'s real-time precise GPS coordinates (latitude, longitude), accuracy radius in meters, and reverse-geocoded physical address (neighborhood, city, state).',
         parameters: {
           type: Type.OBJECT,
-          properties: {}
-        }
+          properties: {
+            highAccuracy: {
+              type: Type.BOOLEAN,
+              description: 'Whether to use high-accuracy GPS hardware sensors',
+            },
+          },
+        },
       },
       {
         name: 'searchNearbyPlaces',
@@ -1471,20 +1885,38 @@ server.on('upgrade', (request, socket, head) => {
 
 wss.on('connection', async (clientWs: WebSocket, req: http.IncomingMessage) => {
   const url = new URL(req.url || '', `http://${req.headers.host || 'localhost'}`);
-  const requestedVoice = url.searchParams.get('voice') || 'Kore';
+  const requestedVoice = url.searchParams.get('voice') || 'Leda';
   const userTimezone = url.searchParams.get('tz') || url.searchParams.get('timezone') || 'Auto-detected';
   const userCity = url.searchParams.get('city') || url.searchParams.get('loc') || url.searchParams.get('location') || 'Local Region';
   const userTime = url.searchParams.get('time') || new Date().toLocaleTimeString();
   const userDate = url.searchParams.get('date') || new Date().toLocaleDateString([], { weekday: 'long', year: 'numeric', month: 'short', day: 'numeric' });
+  const requestedSpeaker = url.searchParams.get('speaker') || '';
+  const requestedSpeakerGender = url.searchParams.get('speakerGender') || '';
+  const requestedSpeakerGrammar = url.searchParams.get('speakerGrammar') || '';
+
+  const isScratchState = !requestedSpeaker || requestedSpeaker === 'Unknown Voice' || serverSpeakerFolders.length === 0;
+
+  let currentSpeakerState = {
+    name: isScratchState ? '' : requestedSpeaker,
+    gender: requestedSpeakerGender || 'unknown',
+    pitchHz: 0,
+    grammaticalStyle: requestedSpeakerGrammar || 'respectful',
+    isRecognized: !isScratchState,
+  };
 
   const liveInstruction = buildIrisSystemInstruction({
     time: userTime,
     date: userDate,
     timezone: userTimezone,
     city: userCity,
+    voice: requestedVoice,
+    speakerName: currentSpeakerState.name,
+    speakerGender: currentSpeakerState.gender,
+    speakerPitch: currentSpeakerState.pitchHz,
+    speakerGrammar: currentSpeakerState.grammaticalStyle,
   });
 
-  console.log(`⚡ [LiveWS] Client connected with voice: ${requestedVoice}, tz: ${userTimezone}, city: ${userCity}`);
+  console.log(`⚡ [LiveWS] Client connected with voice: ${requestedVoice}, speaker: ${requestedSpeaker} (${requestedSpeakerGender}), tz: ${userTimezone}`);
   let liveSession: any = null;
   let isSessionActive = true;
 
@@ -1511,13 +1943,22 @@ wss.on('connection', async (clientWs: WebSocket, req: http.IncomingMessage) => {
     cleanupSession();
   });
 
+  if (!apiKey) {
+    console.warn('⚠️ [LiveWS] GEMINI_API_KEY is missing');
+    if (clientWs.readyState === WebSocket.OPEN) {
+      clientWs.send(JSON.stringify({
+        type: 'error',
+        message: 'GEMINI_API_KEY is not configured on the server. Please check your environment variables.'
+      }));
+    }
+    return;
+  }
+
   try {
-    console.log(`🚀 [LiveWS] Connecting to Gemini Live (voice: ${requestedVoice}) with model: gemini-2.0-flash-exp`);
-    
-    // Connect to Gemini Live API
-    let chosenModel = 'gemini-2.0-flash-exp';
-    
-    const connectConfig = {
+    let chosenModel = 'gemini-3.8-live';
+    console.log(`🚀 [LiveWS] Connecting to Gemini Live (voice: ${requestedVoice}) with model: ${chosenModel}`);
+
+    const connectConfig: any = {
       model: chosenModel,
       config: {
         responseModalities: [Modality.AUDIO],
@@ -1546,7 +1987,6 @@ wss.on('connection', async (clientWs: WebSocket, req: http.IncomingMessage) => {
               const part = parts[i];
               if (part.inlineData?.data) {
                 const mimeType = part.inlineData.mimeType || 'audio/pcm;rate=24000';
-                console.log(`🔊 [Gemini Live] Received audio chunk #${i + 1}, len=${part.inlineData.data.length}, mime=${mimeType}`);
                 clientWs.send(JSON.stringify({
                   type: 'audio',
                   data: part.inlineData.data,
@@ -1554,7 +1994,6 @@ wss.on('connection', async (clientWs: WebSocket, req: http.IncomingMessage) => {
                 }));
               }
               if (part.text) {
-                console.log(`💬 [Gemini Live] Received text in part: "${part.text.substring(0, 80)}..."`);
                 clientWs.send(JSON.stringify({
                   type: 'transcription',
                   text: part.text,
@@ -1566,7 +2005,6 @@ wss.on('connection', async (clientWs: WebSocket, req: http.IncomingMessage) => {
           // Check for output transcription if provided by model
           if (message.serverContent?.outputTranscription?.text) {
             const text = message.serverContent.outputTranscription.text;
-            console.log(`📝 [Gemini Live] Output transcription: "${text}"`);
             clientWs.send(JSON.stringify({
               type: 'transcription',
               text,
@@ -1576,7 +2014,6 @@ wss.on('connection', async (clientWs: WebSocket, req: http.IncomingMessage) => {
           // Check for input user transcription
           if (message.serverContent?.inputTranscription?.text) {
             const userText = message.serverContent.inputTranscription.text;
-            console.log(`🎤 [Gemini Live] User speech transcribed: "${userText}"`);
             clientWs.send(JSON.stringify({
               type: 'userTranscription',
               text: userText,
@@ -1585,13 +2022,12 @@ wss.on('connection', async (clientWs: WebSocket, req: http.IncomingMessage) => {
 
           // Check for interruption signal
           if (message.serverContent?.interrupted) {
-            console.log('⚡ [Gemini Live] Interruption received! Model was interrupted by user speech.');
+            console.log('⚡ [Gemini Live] Interruption signal received');
             clientWs.send(JSON.stringify({ type: 'interrupted' }));
           }
 
           // Check for turn complete
           if (message.serverContent?.turnComplete) {
-            console.log('🏁 [Gemini Live] Model turn complete');
             clientWs.send(JSON.stringify({ type: 'turnComplete' }));
           }
 
@@ -1627,10 +2063,8 @@ wss.on('connection', async (clientWs: WebSocket, req: http.IncomingMessage) => {
     };
 
     const liveModelCandidates = [
-      'gemini-2.0-flash-exp',
-      'gemini-2.0-flash-realtime-exp',
-      'gemini-2.5-flash',
-      'gemini-3.8-live'
+      'gemini-3.8-live',
+      'gemini-3.8-live-extended-thinking',
     ];
 
     let connectSuccess = false;
@@ -1674,6 +2108,9 @@ wss.on('connection', async (clientWs: WebSocket, req: http.IncomingMessage) => {
     uploadedAt: number;
   } | null = null;
 
+  let lastScreenAnalysisTime = 0;
+  let isAnalyzingScreen = false;
+
   // Handle messages from the browser client
   clientWs.on('message', async (data: Buffer | string) => {
     if (!liveSession || !isSessionActive) {
@@ -1692,6 +2129,62 @@ wss.on('connection', async (clientWs: WebSocket, req: http.IncomingMessage) => {
             mimeType: 'audio/pcm;rate=16000',
           }
         });
+      } else if (msg.type === 'speaker_init') {
+        if (msg.activeSpeaker) {
+          currentSpeakerState = {
+            name: msg.activeSpeaker.name || 'Shivshankar',
+            gender: msg.activeSpeaker.gender || 'male',
+            pitchHz: msg.activeSpeaker.voiceProfile?.estimatedPitchHz || 122.5,
+            grammaticalStyle: msg.activeSpeaker.grammaticalStyle || 'masculine',
+            isRecognized: true,
+          };
+        }
+        if (Array.isArray(msg.registeredSpeakers)) {
+          serverSpeakerFolders = msg.registeredSpeakers;
+        }
+        console.log(`🎙️ [LiveWS] Initial speaker loaded: "${currentSpeakerState.name}" (${currentSpeakerState.gender}, pitch: ${currentSpeakerState.pitchHz} Hz)`);
+      } else if (msg.type === 'speaker_acoustic_telemetry') {
+        const { pitchHz, spectralCentroid, speakerName, isRecognized, gender, grammaticalStyle, confidence } = msg;
+        const previousSpeaker = currentSpeakerState.name;
+
+        currentSpeakerState = {
+          name: speakerName || currentSpeakerState.name,
+          gender: gender || currentSpeakerState.gender,
+          pitchHz: pitchHz || currentSpeakerState.pitchHz,
+          grammaticalStyle: grammaticalStyle || (gender === 'female' ? 'feminine' : 'masculine'),
+          isRecognized: !!isRecognized,
+        };
+
+        // When the speaker identity switches from Person A to Person B, or to a New Voice:
+        if (previousSpeaker !== speakerName && isSessionActive && liveSession) {
+          const centroidVal = Math.round(spectralCentroid || 1200);
+          const timbreLabel = centroidVal <= 1650 ? 'Lower Centroid / Denser Formants (Male Resonance)' : 'Higher Centroid / Elevated Dispersion (Female Resonance)';
+          console.log(`⚡ [LiveWS] Dynamic Speaker Switch: from "${previousSpeaker}" to "${speakerName}" (${gender}, pitch: ${Math.round(pitchHz)} Hz, timbre: ${centroidVal} Hz)`);
+          try {
+            liveSession.sendClientContent({
+              turns: [
+                {
+                  role: 'user',
+                  parts: [
+                    {
+                      text: `[SYSTEM BIOMETRIC ACOUSTIC SENSOR UPDATE:
+A different speaker is now speaking into the microphone!
+DETECTED SPEAKER: "${speakerName}" (${(gender || 'male').toUpperCase()}).
+LIVE PITCH FREQUENCY (F0): ~${Math.round(pitchHz || 120)} Hz.
+VOCAL TIMBRE RESONANCE: ~${centroidVal} Hz (${timbreLabel}).
+NOTE: If pitch is in 145-195 Hz overlap range, vocal tract resonance & low-frequency harmonic concentration (<1500 Hz) confirms gender.
+GRAMMATICAL STYLE FOR USER: ${gender === 'female' ? 'FEMININE ("chahti hai", "karegi", "kaisi hai")' : 'MASCULINE ("chahta hai", "karega", "kaisa hai")'}.
+STATUS: ${isRecognized ? `Recognized Profile: ${speakerName}. Greet them by name and access their dedicated folder!` : 'New / Unregistered Voice. Politely and warmly ask who is speaking! Do NOT assume.'}]`
+                    }
+                  ]
+                }
+              ],
+              turnComplete: false,
+            });
+          } catch (e) {
+            console.warn('Speaker context notification warning:', e);
+          }
+        }
       } else if (msg.type === 'user_text' && msg.text) {
         console.log(`💬 [LiveWS] User sent text prompt to live session: "${msg.text}"`);
         liveSession.sendClientContent({
@@ -1720,10 +2213,8 @@ wss.on('connection', async (clientWs: WebSocket, req: http.IncomingMessage) => {
           ? `Cursor Position: X=${msg.cursor.x}% across width, Y=${msg.cursor.y}% down height (Pixel: ${msg.cursor.pxX}px, ${msg.cursor.pxY}px)`
           : 'Cursor highlighted on screen';
 
-        console.log(`🖥️ [LiveWS] Live screen frame received from client (${cleanBase64.length} chars). ${cursorStr}`);
-
         try {
-          // Send realtime media frame directly into Gemini Live session
+          // Send realtime media frame directly into Gemini Live session for instant native vision
           liveSession.sendRealtimeInput({
             media: {
               mimeType: 'image/jpeg',
@@ -1734,31 +2225,31 @@ wss.on('connection', async (clientWs: WebSocket, req: http.IncomingMessage) => {
           console.warn('⚠️ [LiveWS] Direct realtime media frame send notice:', frameErr?.message);
         }
 
-        // Perform fast multimodal vision OCR/UI analysis on frame using gemini-2.5-flash
-        try {
-          const screenAnalysis = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: {
-              parts: [
-                { inlineData: { mimeType: 'image/jpeg', data: cleanBase64 } },
-                {
-                  text: `Analyze this live screen capture. The user's mouse cursor is pointed at: ${cursorStr}.
+        // Throttle deep OCR background turn injection to at most once every 6 seconds to prevent pipeline stall
+        const now = Date.now();
+        if (now - lastScreenAnalysisTime >= 6000 && !isAnalyzingScreen) {
+          lastScreenAnalysisTime = now;
+          isAnalyzingScreen = true;
+          (async () => {
+            try {
+              const screenAnalysis = await ai.models.generateContent({
+                model: 'gemini-2.5-flash',
+                contents: [
+                  { inlineData: { mimeType: 'image/jpeg', data: cleanBase64 } },
+                  `Analyze this live screen capture. The user's mouse cursor is pointed at: ${cursorStr}.
 Identify opened applications/windows, key text visible, code or webpage content, and specifically what the user is pointing at or looking at near X=${msg.cursor?.x}%, Y=${msg.cursor?.y}%.
-Also note exact percentage coordinates (X, Y) of key UI elements so Iris can call highlightScreenArea or drawOnScreen if needed. Describe concise context in 2-3 sentences.`
-                }
-              ]
-            }
-          });
+Also note exact percentage coordinates (X, Y) of key UI elements so Iris can call highlightScreenArea or drawOnScreen if needed. Describe concise context in 2 sentences.`
+                ]
+              });
 
-          if (screenAnalysis.text) {
-            console.log(`🖥️ [LiveWS] Screen Vision Analysis Success: "${screenAnalysis.text.slice(0, 150)}..."`);
-            liveSession.sendClientContent({
-              turns: [
-                {
-                  role: 'user',
-                  parts: [
+              if (screenAnalysis.text && isSessionActive) {
+                liveSession.sendClientContent({
+                  turns: [
                     {
-                      text: `[SYSTEM LIVE SCREEN VIEW & CURSOR TRACKING UPDATE:
+                      role: 'user',
+                      parts: [
+                        {
+                          text: `[SYSTEM LIVE SCREEN VIEW & CURSOR TRACKING UPDATE:
 Iris, you are looking at the user's screen in real time.
 MOUSE CURSOR LOCATION: ${cursorStr}
 REAL-TIME SCREEN CONTENTS & OCR ANALYSIS:
@@ -1767,15 +2258,19 @@ ${screenAnalysis.text}
 MANDATORY INSTRUCTION FOR IRIS:
 You see the user's screen and mouse pointer clearly!
 If the user asks where something is, asks for help on their screen, or if you want to point something out, CALL THE 'highlightScreenArea' OR 'drawOnScreen' TOOL to draw a glowing visual highlight box or arrow on their screen!]`
+                        }
+                      ]
                     }
-                  ]
-                }
-              ],
-              turnComplete: false,
-            });
-          }
-        } catch (visionErr: any) {
-          console.warn('⚠️ [LiveWS] Screen vision analysis notice:', visionErr?.message || visionErr);
+                  ],
+                  turnComplete: false,
+                });
+              }
+            } catch (visionErr: any) {
+              console.warn('⚠️ [LiveWS] Screen vision analysis notice:', visionErr?.message || visionErr);
+            } finally {
+              isAnalyzingScreen = false;
+            }
+          })();
         }
       } else if (msg.type === 'file_upload' && msg.file) {
         // Live file/photo/video upload during ongoing voice call!
@@ -1836,12 +2331,12 @@ MANDATORY INSTRUCTIONS FOR IRIS:
             try {
               const imgAnalysis = await ai.models.generateContent({
                 model: 'gemini-2.5-flash',
-                contents: {
-                  parts: [
-                    { inlineData: { mimeType: mimeType || 'image/jpeg', data: cleanBase64 } },
-                    { text: `Describe what is in this photo named "${name}" in high detail: describe all objects, visible text/OCR, colors, and scene in 2-3 friendly sentences.` }
-                  ]
-                },
+                contents: [
+                  { inlineData: { mimeType: mimeType || 'image/jpeg', data: cleanBase64 } },
+                  `Examine this uploaded photo/image named "${name}" in comprehensive detail.
+Transcribe and read ALL visible text, numbers, codes, handwriting, questions, diagrams, labels, and products.
+Describe the full scene, objects, and text clearly so Iris can speak directly and answer any questions about the image.`
+                ],
                 config: { systemInstruction: IRIS_SYSTEM_INSTRUCTION }
               });
               imgDescription = imgAnalysis.text || '';
@@ -1871,7 +2366,7 @@ Uploaded Photo Name: "${name}" (${mimeType})
 VISUAL ANALYSIS & OCR:
 ${imgDescription || 'User uploaded a photo.'}
 
-INSTRUCTION: Speak right now to the user aloud in your natural friendly voice. Tell them you can see their photo "${name}", describe the main things you see in it in detail, and ask how you can help!]`
+INSTRUCTION: Speak right now to the user aloud in your natural friendly voice. Tell them you can see their photo "${name}", describe the details and text you see in it, and ask how you can help!]`
                     }
                   ]
                 }
@@ -1883,15 +2378,13 @@ INSTRUCTION: Speak right now to the user aloud in your natural friendly voice. T
           }
         } else if (type === 'video' || mimeType?.startsWith('video/')) {
           try {
-            // Video analysis via multimodal gemini-3.8-flash injected into live session
+            // Video analysis via multimodal gemini-2.5-flash injected into live session
             const vRes = await ai.models.generateContent({
-              model: 'gemini-3.8-flash',
-              contents: {
-                parts: [
-                  { inlineData: { mimeType: mimeType || 'video/mp4', data: cleanBase64 } },
-                  { text: `Describe what happens in this video named "${name}" in detail, including scene breakdown, actions, and key moments in 2-3 friendly Hinglish sentences.` }
-                ]
-              },
+              model: 'gemini-2.5-flash',
+              contents: [
+                { inlineData: { mimeType: mimeType || 'video/mp4', data: cleanBase64 } },
+                `Describe what happens in this video named "${name}" in detail, including scene breakdown, actions, and key moments in 2-3 friendly Hinglish sentences.`
+              ],
               config: { systemInstruction: IRIS_SYSTEM_INSTRUCTION }
             });
             const vSummary = vRes.text || 'Maine video dekh li!';

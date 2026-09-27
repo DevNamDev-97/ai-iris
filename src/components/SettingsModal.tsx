@@ -20,9 +20,13 @@ import {
   Search,
   Trash2,
   FileText,
+  Sun,
+  Moon,
 } from 'lucide-react';
 import { RippleButton } from './RippleButton.tsx';
 import { crossSessionMemory } from '../services/crossSessionMemory.ts';
+import { speakerMemoryStore } from '../services/speakerMemoryStore.ts';
+import { triggerHaptic } from '../utils/haptics.ts';
 
 export interface VoiceOption {
   id: string;
@@ -35,11 +39,19 @@ export interface VoiceOption {
 
 export const AVAILABLE_VOICES: VoiceOption[] = [
   {
+    id: 'Leda',
+    name: 'Leda (Default)',
+    gender: 'Female',
+    style: 'Articulate, smart, confident',
+    description: 'Clear, crisp, and authoritative professional tone with ultra-high clarity in Hinglish and English.',
+    samplePhrase: 'System active hai. Main har task ko high accuracy ke sath execute kar sakti hoon.',
+  },
+  {
     id: 'Kore',
-    name: 'Kore (Default)',
+    name: 'Kore',
     gender: 'Female',
     style: 'Young, energetic, witty & friendly',
-    description: 'The signature Iris voice. Bright, confident, and playful close-friend tone in Hinglish and English.',
+    description: 'Bright, confident, and playful close-friend tone in Hinglish and English.',
     samplePhrase: 'Haan bol na yaar! Main sun rahi hoon, bata kya help chahiye?',
   },
   {
@@ -49,14 +61,6 @@ export const AVAILABLE_VOICES: VoiceOption[] = [
     style: 'Soft, warm, soothing & elegant',
     description: 'Gentle, melodious, and calm. Ideal for relaxed discussions and detailed reviews.',
     samplePhrase: 'Namaste! Main aapki madad karne ke liye bilkul taiyyar hoon.',
-  },
-  {
-    id: 'Leda',
-    name: 'Leda',
-    gender: 'Female',
-    style: 'Articulate, smart, confident',
-    description: 'Clear, crisp, and authoritative professional tone with high clarity.',
-    samplePhrase: 'System active hai. Main har task ko high accuracy ke sath execute kar sakti hoon.',
   },
   {
     id: 'Puck',
@@ -108,6 +112,8 @@ interface SettingsModalProps {
   platformMode?: 'auto' | 'windows' | 'android';
   onSelectPlatform?: (platform: 'auto' | 'windows' | 'android') => void;
   onRunDiagnostic?: () => Promise<{ success: boolean; message: string }>;
+  theme?: 'light' | 'dark';
+  onToggleTheme?: (theme: 'light' | 'dark') => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -118,6 +124,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   platformMode = 'auto',
   onSelectPlatform,
   onRunDiagnostic,
+  theme = 'light',
+  onToggleTheme,
 }) => {
   const [playingVoiceId, setPlayingVoiceId] = useState<string | null>(null);
   const [isLoadingPreview, setIsLoadingPreview] = useState(false);
@@ -126,6 +134,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [memorySearchQuery, setMemorySearchQuery] = useState('');
   const [memorySearchResults, setMemorySearchResults] = useState<any | null>(null);
   const [memoryStats, setMemoryStats] = useState(() => crossSessionMemory.getStats());
+  const [isConfirmingReset, setIsConfirmingReset] = useState(false);
+  const [resetSuccessMessage, setResetSuccessMessage] = useState<string | null>(null);
+  const [isResetting, setIsResetting] = useState(false);
 
   if (!isOpen) return null;
 
@@ -139,12 +150,38 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setMemorySearchResults(res);
   };
 
-  const handleClearMemory = () => {
-    if (window.confirm('Reset learned memory and interaction database?')) {
+  const handleExecuteReset = async () => {
+    try {
+      setIsResetting(true);
+      triggerHaptic('medium');
+
+      // 1. Reset client crossSessionMemory
       crossSessionMemory.clearMemory();
+
+      // 2. Reset client speakerMemoryStore to default seed state
+      speakerMemoryStore.resetToDefaults();
+
+      // 3. Reset server memory database
+      try {
+        await fetch('/api/memory/reset', { method: 'POST' });
+      } catch (err) {
+        console.warn('Backend memory reset request error:', err);
+      }
+
+      // 4. Update UI states
       setMemoryStats(crossSessionMemory.getStats());
       setMemorySearchResults(null);
       setMemorySearchQuery('');
+      setIsConfirmingReset(false);
+      setResetSuccessMessage('✓ Memory database has been completely reset!');
+
+      setTimeout(() => {
+        setResetSuccessMessage(null);
+      }, 4000);
+    } catch (err: any) {
+      console.error('Failed to reset memory database:', err);
+    } finally {
+      setIsResetting(false);
     }
   };
 
@@ -203,8 +240,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
-      <div className="w-full max-w-2xl max-h-[90vh] bg-slate-900 border border-cyan-500/40 rounded-2xl shadow-[0_0_40px_rgba(6,182,212,0.2)] flex flex-col overflow-hidden relative">
+    <div
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/25 backdrop-blur-[3px] animate-motion-blur-in cursor-pointer"
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-2xl max-h-[90vh] bg-slate-900/90 border border-cyan-500/40 rounded-2xl shadow-[0_20px_60px_rgba(6,182,212,0.25)] flex flex-col overflow-hidden relative motion-blur-glass cursor-default"
+      >
         {/* Ambient Top Glow */}
         <div className="absolute -top-12 -left-12 w-36 h-36 bg-cyan-500/20 rounded-full blur-3xl pointer-events-none" />
 
@@ -233,6 +278,73 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
         {/* Modal Body - Scrollable */}
         <div className="flex-1 overflow-y-auto p-5 space-y-6">
+          {/* Section: UI Theme & Aesthetics Mode (Light Glossy / Cyber Dark) */}
+          <div className="p-4 rounded-xl bg-slate-950/70 border border-cyan-500/25 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                {theme === 'dark' ? (
+                  <Moon className="w-4 h-4 text-cyan-400" />
+                ) : (
+                  <Sun className="w-4 h-4 text-amber-400" />
+                )}
+                <h4 className="text-xs font-bold text-slate-200 font-mono tracking-wider">
+                  UI THEME & ACCESSIBILITY MODE
+                </h4>
+              </div>
+              <span className="text-[10px] font-mono text-cyan-300 font-semibold px-2 py-0.5 rounded-full bg-cyan-950/80 border border-cyan-500/30">
+                ACTIVE: {theme.toUpperCase()} MODE
+              </span>
+            </div>
+
+            <p className="text-xs text-slate-300">
+              Toggle between the 40% translucent glossy white glass aesthetic and the high-contrast cyber dark glass mode. Your choice is automatically saved.
+            </p>
+
+            <div className="grid grid-cols-2 gap-3 pt-1">
+              <button
+                type="button"
+                onClick={() => onToggleTheme?.('light')}
+                className={`p-3 rounded-xl border transition-all flex items-center gap-3 text-left spring-button ${
+                  theme === 'light'
+                    ? 'bg-white border-blue-400 text-slate-900 shadow-md shadow-blue-500/20 ring-2 ring-blue-400'
+                    : 'bg-slate-900/80 border-slate-800 text-slate-400 hover:text-white hover:border-slate-700'
+                }`}
+              >
+                <div className="w-9 h-9 rounded-xl bg-blue-50 border border-blue-200 flex items-center justify-center text-blue-600 shrink-0">
+                  <Sun className="w-5 h-5" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="font-bold text-xs flex items-center gap-1.5">
+                    <span>Glossy White</span>
+                    {theme === 'light' && <span className="w-1.5 h-1.5 rounded-full bg-blue-600" />}
+                  </div>
+                  <div className="text-[10px] opacity-75 truncate">40% Translucent White Glass</div>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => onToggleTheme?.('dark')}
+                className={`p-3 rounded-xl border transition-all flex items-center gap-3 text-left spring-button ${
+                  theme === 'dark'
+                    ? 'bg-cyan-950/90 border-cyan-400 text-white shadow-md shadow-cyan-400/20 ring-2 ring-cyan-400'
+                    : 'bg-slate-900/80 border-slate-800 text-slate-400 hover:text-white hover:border-slate-700'
+                }`}
+              >
+                <div className="w-9 h-9 rounded-xl bg-cyan-950 border border-cyan-500/40 flex items-center justify-center text-cyan-400 shrink-0">
+                  <Moon className="w-5 h-5" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="font-bold text-xs flex items-center gap-1.5">
+                    <span>Cyber Dark</span>
+                    {theme === 'dark' && <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" />}
+                  </div>
+                  <div className="text-[10px] opacity-75 truncate">High-Contrast Dark Glass</div>
+                </div>
+              </button>
+            </div>
+          </div>
+
           {/* Section: Long-Term Memory Database & Learning Engine */}
           <div className="p-4 rounded-xl bg-slate-950/70 border border-cyan-500/25 space-y-3">
             <div className="flex items-center justify-between">
@@ -295,7 +407,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
 
               {memorySearchResults && (
-                <div className="p-2.5 rounded-xl bg-cyan-950/40 border border-cyan-500/30 text-xs space-y-1 text-slate-200 animate-in fade-in">
+                <div className="p-2.5 rounded-xl bg-cyan-950/40 border border-cyan-500/30 text-xs space-y-1 text-slate-200 animate-dropdown-blur">
                   <div className="font-semibold text-cyan-300 flex items-center gap-1.5">
                     <Database className="w-3 h-3" />
                     <span>Search Result:</span>
@@ -314,15 +426,47 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               )}
             </div>
 
-            {/* Clear Database button */}
-            <div className="flex justify-end pt-1">
-              <button
-                type="button"
-                onClick={handleClearMemory}
-                className="text-[10px] font-mono text-rose-400/80 hover:text-rose-300 flex items-center gap-1 hover:underline"
-              >
-                <Trash2 className="w-3 h-3" /> Reset Memory Database
-              </button>
+            {/* Clear Database button with inline confirmation & visual feedback */}
+            <div className="pt-2 border-t border-slate-800/60 flex flex-col sm:flex-row items-center justify-between gap-2">
+              {resetSuccessMessage ? (
+                <div className="text-[11px] font-mono text-emerald-400 font-semibold bg-emerald-950/60 border border-emerald-500/40 px-3 py-1.5 rounded-lg flex items-center gap-1.5 animate-fade-in w-full sm:w-auto">
+                  <span>{resetSuccessMessage}</span>
+                </div>
+              ) : (
+                <span className="text-[10px] text-slate-500">
+                  Clears all indexed chats, speech logs, facts & speaker folders back to factory seed.
+                </span>
+              )}
+
+              {isConfirmingReset ? (
+                <div className="flex items-center gap-2 animate-fade-in">
+                  <span className="text-xs text-rose-300 font-semibold">Confirm Reset?</span>
+                  <button
+                    type="button"
+                    onClick={handleExecuteReset}
+                    disabled={isResetting}
+                    className="px-3 py-1 text-xs font-bold rounded-lg bg-rose-600 hover:bg-rose-500 text-white shadow-md active:scale-95 transition-all"
+                  >
+                    {isResetting ? 'Resetting...' : 'Yes, Reset Now'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsConfirmingReset(false)}
+                    className="px-2.5 py-1 text-xs rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setIsConfirmingReset(true)}
+                  className="px-3 py-1.5 text-xs font-mono font-semibold text-rose-400 hover:text-white bg-rose-950/40 hover:bg-rose-600/80 border border-rose-500/40 rounded-lg flex items-center gap-1.5 transition-all cursor-pointer shadow-xs active:scale-95"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Reset Memory Database</span>
+                </button>
+              )}
             </div>
           </div>
 

@@ -61,12 +61,15 @@ const MapController: React.FC<{
     if (!map) return;
     if (selectedPlace) {
       map.panTo({ lat: selectedPlace.lat, lng: selectedPlace.lng });
-      map.setZoom(16);
     } else if (center) {
       map.panTo(center);
-      map.setZoom(zoom);
     }
-  }, [map, center, zoom, selectedPlace]);
+  }, [map, center, selectedPlace]);
+
+  useEffect(() => {
+    if (!map) return;
+    map.setZoom(zoom);
+  }, [map, zoom]);
 
   return null;
 };
@@ -103,6 +106,15 @@ export const GoogleMapModal: React.FC<GoogleMapModalProps> = ({
   const [isLocating, setIsLocating] = useState(false);
   const [copyFeedback, setCopyFeedback] = useState(false);
   const [activeCategory, setActiveCategory] = useState<string | null>(initialCategory || null);
+  const [hasMapLoadError, setHasMapLoadError] = useState(false);
+
+  useEffect(() => {
+    const handleAuthError = () => {
+      setHasMapLoadError(true);
+    };
+    window.addEventListener('gmp-auth-failed', handleAuthError);
+    return () => window.removeEventListener('gmp-auth-failed', handleAuthError);
+  }, []);
 
   // Fetch API key from server config if missing
   useEffect(() => {
@@ -142,12 +154,16 @@ export const GoogleMapModal: React.FC<GoogleMapModalProps> = ({
       }
 
       if (detail.zoom !== undefined) {
-        if (detail.zoom === 'in') {
-          setZoom((prev) => Math.min(20, prev + 2));
-        } else if (detail.zoom === 'out') {
-          setZoom((prev) => Math.max(2, prev - 2));
-        } else if (typeof detail.zoom === 'number') {
-          setZoom(Math.max(1, Math.min(20, detail.zoom)));
+        const zStr = String(detail.zoom).toLowerCase().trim();
+        if (zStr === 'in' || zStr.includes('in') || zStr.includes('badha') || zStr.includes('+')) {
+          setZoom((prev) => Math.min(20, prev + 3));
+        } else if (zStr === 'out' || zStr.includes('out') || zStr.includes('kam') || zStr.includes('-')) {
+          setZoom((prev) => Math.max(2, prev - 3));
+        } else {
+          const num = Number(detail.zoom);
+          if (!isNaN(num) && num >= 1 && num <= 21) {
+            setZoom(num);
+          }
         }
       }
 
@@ -274,8 +290,8 @@ export const GoogleMapModal: React.FC<GoogleMapModalProps> = ({
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-200">
-      <div className="relative w-full max-w-5xl h-[92vh] max-h-[840px] bg-slate-900 border border-slate-700/80 rounded-2xl sm:rounded-3xl shadow-2xl flex flex-col overflow-hidden text-white">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-950/80 backdrop-blur-md animate-motion-blur-in">
+      <div className="relative w-full max-w-5xl h-[92vh] max-h-[840px] bg-slate-900 border border-slate-700/80 rounded-2xl sm:rounded-3xl shadow-2xl flex flex-col overflow-hidden text-white motion-blur-glass">
         
         {/* Header Bar */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-slate-800 bg-slate-950/90 shrink-0">
@@ -396,66 +412,106 @@ export const GoogleMapModal: React.FC<GoogleMapModalProps> = ({
           
           {/* Google Map Container with Explicit Height */}
           <div className="flex-1 h-full w-full relative">
-            <APIProvider apiKey={apiKey}>
-              <Map
-                internalUsageAttributionIds={['gmp_mcp_codeassist_v1_aistudio']}
-                mapId="DEMO_MAP_ID"
-                defaultCenter={mapCenter}
-                defaultZoom={zoom}
-                gestureHandling="greedy"
-                mapTypeId={mapType}
-                fullscreenControl={false}
-                streetViewControl={true}
-                className="w-full h-full"
-              >
-                <MapController center={mapCenter} zoom={zoom} selectedPlace={selectedPlace} />
-
-                {/* Live High-Accuracy User Location Marker with Radar Beacon */}
-                <AdvancedMarker
-                  position={{ lat: userLocation.latitude, lng: userLocation.longitude }}
-                  title="My Precise Location"
-                  onClick={() => {
-                    setSelectedPlace(null);
-                    setMapCenter({ lat: userLocation.latitude, lng: userLocation.longitude });
-                  }}
+            {!hasMapLoadError ? (
+              <APIProvider apiKey={apiKey}>
+                <Map
+                  internalUsageAttributionIds={['gmp_mcp_codeassist_v1_aistudio']}
+                  mapId="DEMO_MAP_ID"
+                  defaultCenter={mapCenter}
+                  defaultZoom={zoom}
+                  gestureHandling="greedy"
+                  mapTypeId={mapType}
+                  fullscreenControl={false}
+                  streetViewControl={true}
+                  className="w-full h-full"
                 >
-                  <div className="relative flex items-center justify-center cursor-pointer group">
-                    <div className="absolute w-8 h-8 rounded-full bg-cyan-500/30 animate-ping" />
-                    <div className="relative w-5 h-5 rounded-full bg-cyan-500 border-2 border-white shadow-lg flex items-center justify-center">
-                      <div className="w-2 h-2 rounded-full bg-white" />
-                    </div>
-                  </div>
-                </AdvancedMarker>
+                  <MapController center={mapCenter} zoom={zoom} selectedPlace={selectedPlace} />
 
-                {/* Searched Place Markers */}
-                {searchResults.map((place, idx) => (
+                  {/* Live High-Accuracy User Location Marker with Radar Beacon */}
                   <AdvancedMarker
-                    key={place.id}
-                    position={{ lat: place.lat, lng: place.lng }}
-                    title={place.name}
+                    position={{ lat: userLocation.latitude, lng: userLocation.longitude }}
+                    title="My Precise Location"
                     onClick={() => {
-                      setSelectedPlace(place);
+                      setSelectedPlace(null);
+                      setMapCenter({ lat: userLocation.latitude, lng: userLocation.longitude });
                     }}
                   >
-                    <div
-                      className={`relative flex items-center justify-center cursor-pointer transition-transform hover:scale-125 ${
-                        selectedPlace?.id === place.id ? 'scale-125 z-30' : 'z-20'
-                      }`}
-                    >
-                      <div
-                        className={`w-7 h-7 rounded-xl flex items-center justify-center text-xs font-bold text-white shadow-md border-2 border-white ${
-                          selectedPlace?.id === place.id
-                            ? 'bg-rose-600 shadow-rose-500/50'
-                            : 'bg-blue-600 shadow-blue-500/40'
-                        }`}
-                      >
-                        {idx + 1}
+                    <div className="relative flex items-center justify-center cursor-pointer group">
+                      <div className="absolute w-8 h-8 rounded-full bg-cyan-500/30 animate-ping" />
+                      <div className="relative w-5 h-5 rounded-full bg-cyan-500 border-2 border-white shadow-lg flex items-center justify-center">
+                        <div className="w-2 h-2 rounded-full bg-white" />
                       </div>
                     </div>
                   </AdvancedMarker>
-                ))}
-              </Map>
-            </APIProvider>
+
+                  {/* Searched Place Markers */}
+                  {searchResults.map((place, idx) => (
+                    <AdvancedMarker
+                      key={place.id}
+                      position={{ lat: place.lat, lng: place.lng }}
+                      title={place.name}
+                      onClick={() => {
+                        setSelectedPlace(place);
+                      }}
+                    >
+                      <div
+                        className={`relative flex items-center justify-center cursor-pointer transition-transform hover:scale-125 ${
+                          selectedPlace?.id === place.id ? 'scale-125 z-30' : 'z-20'
+                        }`}
+                      >
+                        <div
+                          className={`w-7 h-7 rounded-xl flex items-center justify-center text-xs font-bold text-white shadow-md border-2 border-white ${
+                            selectedPlace?.id === place.id
+                              ? 'bg-rose-600 shadow-rose-500/50'
+                              : 'bg-blue-600 shadow-blue-500/40'
+                          }`}
+                        >
+                          {idx + 1}
+                        </div>
+                      </div>
+                    </AdvancedMarker>
+                  ))}
+                </Map>
+              </APIProvider>
+            ) : (
+              /* Fallback GPS Location Radar & Navigation Grid */
+              <div className="w-full h-full bg-slate-950 flex flex-col items-center justify-center p-6 text-center relative overflow-hidden">
+                <div className="absolute inset-0 bg-[radial-gradient(#0ea5e9_1px,transparent_1px)] [background-size:24px_24px] opacity-20 pointer-events-none" />
+                <div className="relative z-10 max-w-md bg-slate-900/90 border border-cyan-500/30 p-6 rounded-3xl shadow-2xl backdrop-blur-md space-y-4">
+                  <div className="w-16 h-16 mx-auto rounded-2xl bg-cyan-500/20 border border-cyan-400/40 flex items-center justify-center text-cyan-400 shadow-lg shadow-cyan-500/20 animate-pulse">
+                    <Compass className="w-8 h-8" />
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-base text-white">Live GPS Location Radar</h4>
+                    <p className="text-xs text-slate-300 mt-1">
+                      {userLocation.formattedAddress || `${userLocation.latitude.toFixed(4)}°, ${userLocation.longitude.toFixed(4)}°`}
+                    </p>
+                    <p className="text-[11px] text-cyan-400 font-mono mt-1">
+                      Lat: {userLocation.latitude.toFixed(6)} | Lng: {userLocation.longitude.toFixed(6)} (±{userLocation.accuracy}m)
+                    </p>
+                  </div>
+                  <div className="flex flex-col sm:flex-row gap-2 pt-2">
+                    <a
+                      href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(searchQuery || `${userLocation.latitude},${userLocation.longitude}`)}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex-1 px-4 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-cyan-500/25 transition-all"
+                    >
+                      <ExternalLink className="w-4 h-4" />
+                      <span>Open in Google Maps</span>
+                    </a>
+                    <button
+                      type="button"
+                      onClick={handleRecenter}
+                      className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center justify-center gap-2"
+                    >
+                      <Crosshair className="w-4 h-4 text-cyan-400" />
+                      <span>Refresh GPS</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Floating Map Controls & POV View Switcher */}
             <div className="absolute top-4 right-4 z-10 flex flex-col gap-2">

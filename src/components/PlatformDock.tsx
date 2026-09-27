@@ -152,17 +152,18 @@ export const PlatformDock: React.FC<PlatformDockProps> = ({
           </div>
         </div>
 
-        {/* Quick App Launcher Grid with Smooth CSS Grid Expansion */}
+        {/* Quick App Launcher Grid with Smooth Motion Blur Tray Expansion */}
         <div
           className={`grid transition-all duration-300 ease-out overflow-hidden ${
-            isExpanded ? 'grid-rows-[1fr] opacity-100 p-3 border-t border-slate-100/60 bg-white/40 backdrop-blur-md' : 'grid-rows-[0fr] opacity-0 p-0 border-t-0'
+            isExpanded ? 'grid-rows-[1fr] opacity-100 p-3 border-t border-slate-100/60 bg-white/40 backdrop-blur-md animate-tray-blur' : 'grid-rows-[0fr] opacity-0 p-0 border-t-0'
           }`}
         >
           <div className="min-h-0 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2 text-xs">
-            {activeApps.map((app) => (
+            {activeApps.map((app, idx) => (
               <button
                 key={app.id}
                 type="button"
+                style={{ animationDelay: `${idx * 20}ms` }}
                 onClick={() => {
                   if (app.id === 'camera') {
                     const cameraInput = document.getElementById('iris-mobile-camera-capture') as HTMLInputElement | null;
@@ -172,7 +173,7 @@ export const PlatformDock: React.FC<PlatformDockProps> = ({
                   }
                   onExecuteApp(app.id);
                 }}
-                className="p-2.5 rounded-xl bg-white/70 hover:bg-blue-50/90 border border-white/80 hover:border-blue-300 transition-all flex items-center gap-2 group text-left shadow-2xs hover:shadow-md spring-button"
+                className="p-2.5 rounded-xl bg-white/70 hover:bg-blue-50/90 border border-white/80 hover:border-blue-300 transition-all flex items-center gap-2 group text-left shadow-2xs hover:shadow-md spring-button animate-item-blur"
               >
                 <div className="p-1.5 rounded-lg bg-white border border-slate-200/80 group-hover:border-blue-300 group-hover:scale-110 transition-all shrink-0">
                   {app.icon}

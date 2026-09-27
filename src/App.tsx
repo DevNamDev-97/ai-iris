@@ -14,6 +14,8 @@ import {
   MapPin,
   Eye,
   Tv,
+  Sun,
+  Moon,
 } from 'lucide-react';
 import { screenShareService } from './services/screenShareService.ts';
 import { LiveClient, AssistantState } from './services/liveClient.ts';
@@ -40,9 +42,11 @@ import { GoogleMapModal } from './components/GoogleMapModal.tsx';
 import { LocationPermissionModal } from './components/LocationPermissionModal.tsx';
 import { ScreenAnnotationOverlay } from './components/ScreenAnnotationOverlay.tsx';
 import { CameraCaptureModal } from './components/CameraCaptureModal.tsx';
+import { PersonMemoryFoldersModal } from './components/PersonMemoryFoldersModal.tsx';
 import { locationService } from './services/locationService.ts';
 import { toEnglishAlphabets } from './utils/transliteration.ts';
 import { crossSessionMemory } from './services/crossSessionMemory.ts';
+import { speakerMemoryStore } from './services/speakerMemoryStore.ts';
 
 export default function App() {
   const [state, setState] = useState<AssistantState>('IDLE');
@@ -61,13 +65,24 @@ export default function App() {
   const [isRemindersOpen, setIsRemindersOpen] = useState<boolean>(false);
   const [isNotesOpen, setIsNotesOpen] = useState<boolean>(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState<boolean>(false);
+  const [isPersonFoldersOpen, setIsPersonFoldersOpen] = useState<boolean>(false);
+  const [livePitchHz, setLivePitchHz] = useState<number>(0);
+  const [liveCentroidHz, setLiveCentroidHz] = useState<number>(0);
+  const [liveDetectedGender, setLiveDetectedGender] = useState<'male' | 'female' | 'ambiguous'>('ambiguous');
+  const [matchedSpeakerName, setMatchedSpeakerName] = useState<string>(() => {
+    const active = speakerMemoryStore.getActiveFolder();
+    return active.id === 'guest' || !active.name || active.name === 'Unknown Voice' ? 'Listening...' : active.name;
+  });
   const [unreadNotifCount, setUnreadNotifCount] = useState<number>(0);
 
   const [platformMode, setPlatformMode] = useState<'auto' | 'windows' | 'android'>(() => {
     return (localStorage.getItem('iris_platform_mode') as any) || 'auto';
   });
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    return (localStorage.getItem('iris_theme') as 'light' | 'dark') || 'light';
+  });
   const [selectedVoice, setSelectedVoice] = useState<string>(() => {
-    return localStorage.getItem('iris_preferred_voice') || 'Kore';
+    return localStorage.getItem('iris_preferred_voice') || 'Leda';
   });
   const [isVoiceUploadOpen, setIsVoiceUploadOpen] = useState<boolean>(false);
   const [voiceUploadType, setVoiceUploadType] = useState<'image' | 'video' | 'document' | 'any'>('any');
@@ -112,10 +127,16 @@ export default function App() {
     window.addEventListener('iris-request-screenshare', handleScreenShareRequest);
     window.addEventListener('iris-open-chat', handleOpenChatRequest);
 
+    const unsubSpeaker = speakerMemoryStore.subscribe(() => {
+      const active = speakerMemoryStore.getActiveFolder();
+      setMatchedSpeakerName(active.id === 'guest' || !active.name || active.name === 'Unknown Voice' ? 'Listening...' : active.name);
+    });
+
     return () => {
       clearInterval(interval);
       window.removeEventListener('iris-request-screenshare', handleScreenShareRequest);
       window.removeEventListener('iris-open-chat', handleOpenChatRequest);
+      unsubSpeaker();
     };
   }, []);
 
@@ -125,10 +146,17 @@ export default function App() {
       setIsScreenSharing(false);
     } else {
       if (state === 'IDLE') {
-        await toggleSession();
+        try {
+          await clientRef.current?.start(selectedVoice);
+        } catch (e) {
+          console.warn('Auto start voice session for screen share:', e);
+        }
       }
       const success = await clientRef.current?.startScreenShare();
       setIsScreenSharing(!!success);
+      if (!success) {
+        console.log('ℹ️ [App] Display capture was not started (dialog dismissed or unsupported).');
+      }
     }
   };
 
@@ -196,22 +224,40 @@ export default function App() {
       setIsLocationPermissionOpen(true);
     };
 
+    const handleRequestScreenShare = async () => {
+      await handleToggleScreenShare();
+    };
+
+    const handleOpenChat = () => {
+      setIsChatOpen(true);
+    };
+
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible' && clientRef.current) {
         clientRef.current.ensureAudio();
       }
     };
 
+    const handleMapControl = (e: any) => {
+      setIsMapOpen(true);
+    };
+
     window.addEventListener('iris-open-map', handleOpenMap);
+    window.addEventListener('iris-map-control', handleMapControl);
     window.addEventListener('gmp-quota-exceeded', handleQuotaExceeded);
     window.addEventListener('iris-open-location-settings', handleOpenLocationSettings);
+    window.addEventListener('iris-request-screenshare', handleRequestScreenShare);
+    window.addEventListener('iris-open-chat', handleOpenChat);
     window.addEventListener('visibilitychange', handleVisibilityChange);
     window.addEventListener('focus', handleVisibilityChange);
 
     return () => {
       window.removeEventListener('iris-open-map', handleOpenMap);
+      window.removeEventListener('iris-map-control', handleMapControl);
       window.removeEventListener('gmp-quota-exceeded', handleQuotaExceeded);
       window.removeEventListener('iris-open-location-settings', handleOpenLocationSettings);
+      window.removeEventListener('iris-request-screenshare', handleRequestScreenShare);
+      window.removeEventListener('iris-open-chat', handleOpenChat);
       window.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('focus', handleVisibilityChange);
     };
@@ -407,6 +453,14 @@ export default function App() {
           setIsNotificationsOpen(true);
         }
       },
+      onAcousticPitch: (data) => {
+        setLivePitchHz(data.pitchHz);
+        if (data.spectralCentroid) setLiveCentroidHz(data.spectralCentroid);
+        if (data.detectedGender) setLiveDetectedGender(data.detectedGender);
+        if (data.speakerName && data.speakerName !== 'Unknown Voice') {
+          setMatchedSpeakerName(data.speakerName);
+        }
+      },
       onRequestFileUpload: (data) => {
         setVoiceUploadType((data.fileType as any) || 'any');
         setVoiceUploadPrompt(data.message || 'Haan bilkul, upload kar na! Main dekh rahi hoon!');
@@ -501,14 +555,40 @@ export default function App() {
     return clientRef.current.runSpeakerTest();
   };
 
+  const handleToggleTheme = (newTheme: 'light' | 'dark') => {
+    setTheme(newTheme);
+    localStorage.setItem('iris_theme', newTheme);
+    if (typeof document !== 'undefined') {
+      if (newTheme === 'dark') {
+        document.documentElement.classList.add('dark');
+      } else {
+        document.documentElement.classList.remove('dark');
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (typeof document !== 'undefined') {
+      if (theme === 'dark') {
+        document.documentElement.classList.add('dark');
+      } else {
+        document.documentElement.classList.remove('dark');
+      }
+    }
+  }, [theme]);
+
   const handleAddContact = (contact: Contact) => {
     if (!clientRef.current) return;
     clientRef.current.getDeviceBridge().addContact(contact);
     setContacts([...clientRef.current.getDeviceBridge().getContacts()]);
   };
 
+  const isDark = theme === 'dark';
+
   return (
-    <div className="min-h-screen bg-white text-slate-900 flex flex-col font-sans selection:bg-blue-500 selection:text-white relative overflow-x-hidden">
+    <div className={`min-h-screen flex flex-col font-sans selection:bg-blue-500 selection:text-white relative overflow-x-hidden transition-colors duration-300 ${
+      isDark ? 'bg-slate-950 text-slate-100' : 'bg-white text-slate-900'
+    }`}>
       {/* Google Maps Quota Defense Banner */}
       {quotaExceeded && (
         <div className="bg-amber-50 border-b border-amber-200 text-amber-900 px-4 py-2.5 text-xs md:text-sm text-center sticky top-0 z-50 shadow-sm">
@@ -545,17 +625,25 @@ export default function App() {
       />
 
       {/* Top Navigation Bar: Settings Icon (Top-Left) & Information Icon (Top-Right) */}
-      <header className="w-full max-w-5xl mx-auto px-4 py-3 flex items-center justify-between border-b border-white/70 z-20 backdrop-blur-xl bg-white/50 shadow-[0_15px_35px_rgba(14,165,233,0.14)] rounded-b-2xl transition-all duration-300">
+      <header className={`w-full max-w-5xl mx-auto px-4 py-3 flex items-center justify-between border-b z-20 backdrop-blur-xl rounded-b-2xl transition-all duration-300 ${
+        isDark
+          ? 'bg-slate-950/60 border-cyan-500/20 shadow-[0_15px_35px_rgba(6,182,212,0.14)] text-white'
+          : 'bg-white/50 border-white/70 shadow-[0_15px_35px_rgba(14,165,233,0.14)] text-slate-900'
+      }`}>
         {/* Top Left: Settings Icon */}
         <div className="flex items-center gap-3">
           <button
             type="button"
             onClick={() => setIsSettingsOpen(true)}
-            className="w-10 h-10 rounded-2xl bg-white border border-slate-200/90 hover:border-blue-400 flex items-center justify-center text-slate-700 hover:text-blue-600 transition-all shadow-sm hover:scale-105 active:scale-95 group"
+            className={`w-10 h-10 rounded-2xl border flex items-center justify-center transition-all shadow-sm hover:scale-105 active:scale-95 group ${
+              isDark
+                ? 'bg-slate-900/90 border-slate-700/80 hover:border-cyan-400 text-slate-200 hover:text-cyan-400'
+                : 'bg-white border-slate-200/90 hover:border-blue-400 text-slate-700 hover:text-blue-600'
+            }`}
             title="Settings & Voice Preferences (Hotkey: S)"
             aria-label="Settings"
           >
-            <Settings className="w-5 h-5 text-slate-600 group-hover:text-blue-600 group-hover:rotate-45 transition-transform" />
+            <Settings className="w-5 h-5 group-hover:rotate-45 transition-transform" />
           </button>
 
           <div className="flex items-center gap-2">
@@ -564,21 +652,25 @@ export default function App() {
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="font-mono font-bold text-sm tracking-wider text-slate-900">
+                <span className={`font-mono font-bold text-sm tracking-wider ${isDark ? 'text-white' : 'text-slate-900'}`}>
                   I.R.I.S
                 </span>
-                <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-blue-50 text-blue-700 border border-blue-200 font-semibold">
+                <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full font-semibold border ${
+                  isDark
+                    ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40'
+                    : 'bg-blue-50 text-blue-700 border-blue-200'
+                }`}>
                   LIVE AI
                 </span>
               </div>
-              <p className="text-[10px] text-slate-500 font-mono hidden sm:block">
+              <p className={`text-[10px] font-mono hidden sm:block ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
                 Multimodal Assistant • CREATOR - Dev
               </p>
             </div>
           </div>
         </div>
 
-        {/* Top Right: Screen Share, Google Maps, Platform Indicator & Information Icon */}
+        {/* Top Right: Screen Share, Google Maps, Theme Toggle & Information Icon */}
         <div className="flex items-center gap-2">
           {/* Live Screen Share Toggle Button */}
           <button
@@ -587,11 +679,13 @@ export default function App() {
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-2xl border text-xs font-mono transition-all shadow-sm hover:scale-105 active:scale-95 group spring-button ${
               isScreenSharing
                 ? 'bg-emerald-500 text-white font-bold border-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.5)] animate-pulse'
+                : isDark
+                ? 'bg-slate-900/90 border-slate-700 hover:border-emerald-400 text-slate-200 hover:text-emerald-400'
                 : 'bg-white/90 border-slate-200/90 hover:border-emerald-400 text-slate-800 hover:text-emerald-600'
             }`}
             title="See my screen / Toggle live screen share & cursor tracking (or say 'See my screen' to Iris)"
           >
-            <Tv className={`w-4 h-4 ${isScreenSharing ? 'text-white animate-spin-slow' : 'text-emerald-600'}`} />
+            <Tv className={`w-4 h-4 ${isScreenSharing ? 'text-white animate-spin-slow' : 'text-emerald-500'}`} />
             <span className="font-semibold">{isScreenSharing ? 'Screening Live' : 'See Screen'}</span>
           </button>
 
@@ -599,7 +693,11 @@ export default function App() {
           <button
             type="button"
             onClick={() => setIsMapOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-2xl bg-white border border-slate-200 hover:border-cyan-400 text-xs font-mono text-slate-700 hover:text-cyan-600 transition-all shadow-sm hover:scale-105 active:scale-95 group"
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-2xl border text-xs font-mono transition-all shadow-sm hover:scale-105 active:scale-95 group ${
+              isDark
+                ? 'bg-slate-900/90 border-slate-700 hover:border-cyan-400 text-slate-200 hover:text-cyan-400'
+                : 'bg-white border-slate-200 hover:border-cyan-400 text-slate-700 hover:text-cyan-600'
+            }`}
             title="Open Interactive Google Maps & Live GPS Radar (Hotkey: M)"
             aria-label="Google Maps"
           >
@@ -607,49 +705,38 @@ export default function App() {
             <span className="hidden sm:inline font-semibold">Google Map</span>
           </button>
 
-          {/* Environment status indicator */}
-          <div
-            className="hidden md:flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-100 border border-slate-200 text-xs text-slate-700 font-medium"
-            title={`Active Platform: ${platformMode.toUpperCase()}`}
-          >
-            {clientRef.current?.getDeviceBridge().isWindows() ? (
-              <>
-                <Monitor className="w-3.5 h-3.5 text-blue-600" />
-                <span>Windows PC</span>
-              </>
-            ) : isNativeMode ? (
-              <>
-                <Smartphone className="w-3.5 h-3.5 text-emerald-600" />
-                <span>Android Native</span>
-              </>
-            ) : (
-              <>
-                <Globe className="w-3.5 h-3.5 text-blue-600" />
-                <span>Universal Web</span>
-              </>
-            )}
-          </div>
-
-          {/* Voice selector badge button */}
+          {/* Quick Theme Toggle Button in Header */}
           <button
             type="button"
-            onClick={() => setIsSettingsOpen(true)}
-            className="hidden sm:inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-slate-100 hover:bg-slate-200/80 border border-slate-200 text-xs font-mono text-slate-700 transition-colors"
-            title="Active voice"
+            onClick={() => handleToggleTheme(isDark ? 'light' : 'dark')}
+            className={`w-10 h-10 rounded-2xl border flex items-center justify-center transition-all shadow-sm hover:scale-105 active:scale-95 group spring-button ${
+              isDark
+                ? 'bg-slate-900/90 border-slate-700/80 hover:border-cyan-400 text-cyan-400'
+                : 'bg-white border-slate-200/90 hover:border-amber-400 text-amber-500'
+            }`}
+            title={isDark ? 'Switch to Glossy White Glass Mode' : 'Switch to Cyber Dark Mode'}
+            aria-label="Toggle Theme"
           >
-            <Volume2 className="w-3 h-3 text-blue-600" />
-            <span>Voice: {selectedVoice}</span>
+            {isDark ? (
+              <Moon className="w-5 h-5 group-hover:rotate-12 transition-transform" />
+            ) : (
+              <Sun className="w-5 h-5 group-hover:rotate-45 transition-transform" />
+            )}
           </button>
 
           {/* Dedicated Information Button on Top Right */}
           <button
             type="button"
             onClick={() => setIsInfoOpen(true)}
-            className="w-10 h-10 rounded-2xl bg-white border border-slate-200/90 hover:border-blue-400 flex items-center justify-center text-slate-700 hover:text-blue-600 transition-all shadow-sm hover:scale-105 active:scale-95 group"
+            className={`w-10 h-10 rounded-2xl border flex items-center justify-center transition-all shadow-sm hover:scale-105 active:scale-95 group ${
+              isDark
+                ? 'bg-slate-900/90 border-slate-700/80 hover:border-blue-400 text-slate-200 hover:text-blue-400'
+                : 'bg-white border-slate-200/90 hover:border-blue-400 text-slate-700 hover:text-blue-600'
+            }`}
             title="I.R.I.S Information & Voice Commands Guide (Hotkey: I)"
             aria-label="Information"
           >
-            <Info className="w-5 h-5 text-slate-600 group-hover:text-blue-600 transition-colors" />
+            <Info className="w-5 h-5 transition-colors" />
           </button>
         </div>
       </header>
@@ -684,7 +771,9 @@ export default function App() {
         onOpenNotes={() => setIsNotesOpen(true)}
         onOpenNotifications={() => setIsNotificationsOpen(true)}
         onOpenContacts={() => setIsContactsOpen(true)}
+        onOpenPersonFolders={() => setIsPersonFoldersOpen(true)}
         unreadCount={unreadNotifCount}
+        theme={theme}
       />
 
       {/* Quick Platform App Dock */}
@@ -741,18 +830,55 @@ export default function App() {
 
       {/* Central Interactive Focus Area with Centralized Glowing Blue Orb & Expanded Speech Log */}
       <main className="flex-1 w-full max-w-3xl mx-auto px-4 sm:px-6 flex flex-col items-center justify-between z-10 py-2 sm:py-3 space-y-3">
-        {/* Central Advanced Glowing Blue Orb bisected by Dynamic Audio Wave Line with I.R.I.S. Central Text */}
+        {/* Central Advanced Ethereal Harmonic Ribbon Orb with I.R.I.S. Central Hologram */}
         <IrisOrb
           state={state}
           audioLevel={audioLevel}
           onClick={toggleSession}
+          theme={theme}
         />
+
+        {/* Real-Time Acoustic Voice Recognition & Identified Speaker Pill */}
+        <div className="flex items-center justify-center -mt-1 mb-1">
+          <button
+            type="button"
+            onClick={() => setIsPersonFoldersOpen(true)}
+            title="Click to view Voice Biometrics & Person Memory Folders"
+            className={`px-3 py-1 rounded-full text-xs font-mono font-medium flex items-center gap-2 border shadow-xs transition-all hover:scale-105 active:scale-95 cursor-pointer ${
+              theme === 'dark'
+                ? 'bg-slate-900/80 border-cyan-500/30 text-slate-200 hover:border-cyan-400 shadow-[0_0_15px_rgba(6,182,212,0.15)]'
+                : 'bg-white/80 border-blue-200 text-slate-700 hover:border-blue-400 shadow-xs'
+            }`}
+          >
+            <span className={`w-2 h-2 rounded-full ${state === 'IDLE' ? 'bg-slate-400' : 'bg-emerald-400 animate-pulse'}`} />
+            <span>Voice: <strong className={theme === 'dark' ? 'text-cyan-300' : 'text-blue-600'}>{matchedSpeakerName}</strong></span>
+            {livePitchHz > 50 && (
+              <>
+                <span className="text-slate-400 font-sans">•</span>
+                <span className="text-slate-400 font-mono text-[11px]">{Math.round(livePitchHz)} Hz</span>
+                {liveCentroidHz > 300 && (
+                  <span className="text-slate-400 font-mono text-[10px]">T:{Math.round(liveCentroidHz)}</span>
+                )}
+                <span className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
+                  liveDetectedGender === 'female'
+                    ? (theme === 'dark' ? 'bg-pink-950 text-pink-300 border border-pink-500/30' : 'bg-pink-100 text-pink-700')
+                    : liveDetectedGender === 'male'
+                    ? (theme === 'dark' ? 'bg-blue-950 text-blue-300 border border-blue-500/30' : 'bg-blue-100 text-blue-700')
+                    : (theme === 'dark' ? 'bg-slate-800 text-slate-300 border border-slate-700' : 'bg-slate-100 text-slate-600')
+                }`}>
+                  {liveDetectedGender === 'female' ? 'Female' : liveDetectedGender === 'male' ? 'Male' : 'Acoustic'}
+                </span>
+              </>
+            )}
+          </button>
+        </div>
 
         {/* Live Conversation Stream / Speech Log - Expanded in length right up to the Chat button */}
         <div className="w-full flex-1 flex flex-col">
           <ConversationHistoryPanel
             turns={conversationTurns}
             state={state}
+            theme={theme}
             onOpenPopup={(data) => {
               setGeneratedContentData(data);
               setIsGeneratedContentOpen(true);
@@ -784,6 +910,7 @@ export default function App() {
       <ChatPanel
         isOpen={isChatOpen}
         onClose={() => setIsChatOpen(false)}
+        theme={theme}
         deviceBridge={clientRef.current ? clientRef.current.getDeviceBridge() : new DeviceActionBridge()}
         onToolExecuted={(info) => {
           setLastAction({
@@ -948,6 +1075,8 @@ export default function App() {
           localStorage.setItem('iris_platform_mode', mode);
         }}
         onRunDiagnostic={handleSpeakerTest}
+        theme={theme}
+        onToggleTheme={handleToggleTheme}
       />
 
       {/* Information Modal (Opened from Top-Right) */}
@@ -987,6 +1116,15 @@ export default function App() {
         isOpen={isCameraOpen}
         onClose={() => setIsCameraOpen(false)}
         onCapturePhoto={handleCameraCapture}
+      />
+
+      {/* Person-Specific Memory Folders & Voice Recognition Modal */}
+      <PersonMemoryFoldersModal
+        isOpen={isPersonFoldersOpen}
+        onClose={() => setIsPersonFoldersOpen(false)}
+        currentPitchHz={livePitchHz}
+        detectedSpeakerName={matchedSpeakerName}
+        theme={theme}
       />
 
       {/* Footer */}

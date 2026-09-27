@@ -1,52 +1,65 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
+  X,
   Send,
+  Paperclip,
+  Camera,
   Image as ImageIcon,
   Video as VideoIcon,
-  FileText,
-  X,
-  Volume2,
+  FileCode,
   Sparkles,
   Bot,
   User,
-  Paperclip,
-  AlertTriangle,
-  Pause,
+  Trash2,
+  Volume2,
   Loader2,
+  AlertCircle,
+  FileText,
+  CornerDownLeft,
+  ChevronRight,
 } from 'lucide-react';
-import { MarkdownRenderer } from './MarkdownRenderer.tsx';
 import { DeviceActionBridge, ToolExecutionResult } from '../services/deviceActionBridge.ts';
-import { toEnglishAlphabets } from '../utils/transliteration.ts';
+import { MarkdownRenderer } from './MarkdownRenderer.tsx';
 import { FuturisticScrollTrack } from './FuturisticScrollTrack.tsx';
+import { locationService } from '../services/locationService.ts';
 import { crossSessionMemory } from '../services/crossSessionMemory.ts';
-import { triggerHaptic } from '../utils/haptics.ts';
+import { toEnglishAlphabets } from '../utils/transliteration.ts';
 
 export interface AttachedFile {
   id: string;
   name: string;
   mimeType: string;
   size: number;
-  data: string; // base64
+  data: string; // base64 string
   previewUrl?: string;
   type: 'image' | 'video' | 'document';
 }
 
 export interface ChatMessage {
   id: string;
-  role: 'user' | 'assistant';
+  role: 'user' | 'iris';
   text: string;
   files?: AttachedFile[];
   timestamp: number;
-  toolCalls?: any[];
+  isStreaming?: boolean;
 }
 
 interface ChatPanelProps {
   isOpen: boolean;
   onClose: () => void;
   deviceBridge: DeviceActionBridge;
-  onToolExecuted?: (action: { name: string; args: any; result: ToolExecutionResult }) => void;
+  onToolExecuted?: (info: { name: string; args: any; result: ToolExecutionResult }) => void;
   hasMicError?: boolean;
+  theme?: 'light' | 'dark';
 }
+
+const QUICK_PROMPTS = [
+  'What meetings do I have today?',
+  'Search for PDF 1 in memory',
+  'Set a reminder to drink water in 30 minutes',
+  'Where am I and show live map',
+  'Write a Python script to parse JSON',
+];
 
 export const ChatPanel: React.FC<ChatPanelProps> = ({
   isOpen,
@@ -54,555 +67,462 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
   deviceBridge,
   onToolExecuted,
   hasMicError,
+  theme = 'light',
 }) => {
-  const [messages, setMessages] = useState<ChatMessage[]>([
+  const isDark = theme === 'dark';
+  const [messages, setMessages] = useState<ChatMessage[]>(() => [
     {
-      id: 'welcome',
-      role: 'assistant',
-      text: "Hey! Main hoon Iris. Chahe mic kaam na kare ya tujhe koi photo, video, code ya file bhejni ho—tu yahan direct upload kar sakta hai. Main sab read, edit aur analyze karke dungi!",
+      id: 'welcome-1',
+      role: 'iris',
+      text: 'Haan bol na yaar! Main sun rahi hoon. Tu mujhse kuch bhi pooch sakta hai, photos, code, ya files attach karke inspect karwa sakta hai!',
       timestamp: Date.now(),
     },
   ]);
   const [inputText, setInputText] = useState('');
-  const [attachments, setAttachments] = useState<AttachedFile[]>([]);
+  const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [loadingStatusText, setLoadingStatusText] = useState('Iris is thinking...');
-  const [playingAudioId, setPlayingAudioId] = useState<string | null>(null);
+  const [isPlayingAudioId, setIsPlayingAudioId] = useState<string | null>(null);
+  const [audioError, setAudioError] = useState<string | null>(null);
 
-  const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const imageInputRef = useRef<HTMLInputElement | null>(null);
-  const videoInputRef = useRef<HTMLInputElement | null>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const cameraInputRef = useRef<HTMLInputElement | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, isLoading, attachments]);
+    if (isOpen && textareaRef.current) {
+      setTimeout(() => textareaRef.current?.focus(), 150);
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
-  const processFile = (file: File): Promise<AttachedFile> => {
-    return new Promise((resolve, reject) => {
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0) return;
+    const fileList = Array.from(e.target.files);
+
+    fileList.forEach((file) => {
       const reader = new FileReader();
       const mimeType = file.type || 'application/octet-stream';
       let type: 'image' | 'video' | 'document' = 'document';
 
-      if (mimeType.startsWith('image/')) {
-        type = 'image';
-      } else if (mimeType.startsWith('video/')) {
-        type = 'video';
-      }
+      if (mimeType.startsWith('image/')) type = 'image';
+      else if (mimeType.startsWith('video/')) type = 'video';
 
       reader.onload = () => {
         const result = reader.result as string;
         const base64Data = result.includes(';base64,') ? result.split(';base64,')[1] : result;
         const previewUrl = type === 'image' || type === 'video' ? URL.createObjectURL(file) : undefined;
 
-        resolve({
-          id: `${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-          name: file.name,
-          mimeType,
-          size: file.size,
-          data: base64Data,
-          previewUrl,
-          type,
-        });
+        setAttachedFiles((prev) => [
+          ...prev,
+          {
+            id: `file_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+            name: file.name,
+            mimeType,
+            size: file.size,
+            data: base64Data,
+            previewUrl,
+            type,
+          },
+        ]);
       };
-      reader.onerror = reject;
       reader.readAsDataURL(file);
     });
-  };
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!e.target.files || e.target.files.length === 0) return;
-    const fileList = Array.from(e.target.files);
-    try {
-      const processed = await Promise.all(fileList.map((f) => processFile(f)));
-      setAttachments((prev) => [...prev, ...processed]);
-      triggerHaptic('light');
-    } catch (err) {
-      console.error('File reading error:', err);
-    }
     e.target.value = '';
   };
 
-  const handleRemoveAttachment = (id: string) => {
-    triggerHaptic('light');
-    setAttachments((prev) => {
-      const removed = prev.find((a) => a.id === id);
-      if (removed?.previewUrl) {
-        URL.revokeObjectURL(removed.previewUrl);
-      }
-      return prev.filter((a) => a.id !== id);
-    });
-  };
-
   const handleSendMessage = async (textToSend?: string) => {
-    triggerHaptic('medium');
     const text = (textToSend !== undefined ? textToSend : inputText).trim();
-    if (!text && attachments.length === 0) return;
+    if (!text && attachedFiles.length === 0) return;
 
-    const currentAttachments = [...attachments];
-    const cleanUserText = toEnglishAlphabets(text);
-    const userMessage: ChatMessage = {
-      id: Date.now().toString(),
+    const currentFiles = [...attachedFiles];
+    const userMsgId = `user_${Date.now()}`;
+    const newUserMessage: ChatMessage = {
+      id: userMsgId,
       role: 'user',
-      text: cleanUserText,
-      files: currentAttachments.length > 0 ? currentAttachments : undefined,
+      text,
+      files: currentFiles.length > 0 ? currentFiles : undefined,
       timestamp: Date.now(),
     };
 
+    setMessages((prev) => [...prev, newUserMessage]);
+    setInputText('');
+    setAttachedFiles([]);
+    setIsLoading(true);
+    setAudioError(null);
+
+    // Save to cross-session memory
     crossSessionMemory.recordInteraction(
       'user',
-      cleanUserText,
-      currentAttachments.map((a) => ({ name: a.name, mimeType: a.mimeType }))
+      text,
+      currentFiles.map((f) => ({ name: f.name, mimeType: f.mimeType }))
     );
 
-    setMessages((prev) => [...prev, userMessage]);
-    setInputText('');
-    setAttachments([]);
-    setIsLoading(true);
-
-    if (currentAttachments.some((a) => a.type === 'video')) {
-      setLoadingStatusText('Iris is watching and analyzing your video...');
-    } else if (currentAttachments.some((a) => a.type === 'image')) {
-      setLoadingStatusText('Iris is inspecting your photo...');
-    } else if (currentAttachments.some((a) => a.type === 'document')) {
-      setLoadingStatusText('Iris is reading and reviewing your file...');
-    } else {
-      setLoadingStatusText('Iris is thinking...');
-    }
-
     try {
-      const history = messages
-        .filter((m) => m.id !== 'welcome')
-        .map((m) => ({
-          role: m.role,
-          text: m.text,
-        }));
-
-      const locInfo = deviceBridge.getLocationInfo();
-      const payload = {
-        message: text,
-        files: currentAttachments.map((a) => ({
-          name: a.name,
-          mimeType: a.mimeType,
-          data: a.data,
-        })),
-        history,
-        location: locInfo.city,
-        timezone: locInfo.timezone,
-        time: locInfo.formattedTime,
-        date: locInfo.formattedDate,
-      };
+      const locInfo = locationService.getLocation();
+      const historyPayload = messages.slice(-10).map((m) => ({
+        role: m.role,
+        text: m.text,
+      }));
 
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          message: text,
+          files: currentFiles.map((f) => ({
+            name: f.name,
+            mimeType: f.mimeType,
+            data: f.data,
+            type: f.type,
+          })),
+          history: historyPayload,
+          location: locInfo.city || 'Detected Location',
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          time: new Date().toLocaleTimeString(),
+          date: new Date().toLocaleDateString([], { weekday: 'long', year: 'numeric', month: 'short', day: 'numeric' }),
+          voice: localStorage.getItem('iris_preferred_voice') || 'Leda',
+        }),
       });
 
       if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.error || `Server responded with ${res.status}`);
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.error || `Server responded with status ${res.status}`);
       }
 
       const data = await res.json();
-      const functionCalls = data.functionCalls || [];
-      let replyText = data.reply?.trim();
+      const replyText = toEnglishAlphabets(data.reply || 'Main samajh gayi!');
 
-      if (!replyText) {
-        if (functionCalls.some((c: any) => c.name === 'requestFileUpload')) {
-          replyText = "Arey yaar, tune koi photo ya file attach hi nahi ki hai! Niche camera ya attachment icon par click karke photo/file add kar na, phir main dekh ke sab batati hoon!";
-        } else if (currentAttachments.length === 0 && text.toLowerCase().match(/(photo|image|picture|video|file|code|screenshot|isme kya hai|ye dekh)/)) {
-          replyText = "Arey sun, tune abhi tak koi photo ya file attach nahi ki hai! Niche camera ya attachment icon par click karke pehle photo/file add kar na, phir main dekh ke batati hoon!";
-        } else {
-          replyText = "Haan bol na yaar! Main sun rahi hoon.";
-        }
-      }
+      const irisMsgId = `iris_${Date.now()}`;
+      const newIrisMessage: ChatMessage = {
+        id: irisMsgId,
+        role: 'iris',
+        text: replyText,
+        timestamp: Date.now(),
+      };
 
-      if (functionCalls.length > 0) {
-        for (const call of functionCalls) {
+      setMessages((prev) => [...prev, newIrisMessage]);
+      crossSessionMemory.recordInteraction('iris', replyText);
+
+      // Handle function calls returned by Iris
+      if (Array.isArray(data.functionCalls) && data.functionCalls.length > 0) {
+        for (const call of data.functionCalls) {
           try {
-            if (call.name === 'requestFileUpload') {
-              if (call.args?.fileType === 'image') {
-                imageInputRef.current?.click();
-              } else if (call.args?.fileType === 'video') {
-                videoInputRef.current?.click();
-              } else {
-                fileInputRef.current?.click();
-              }
-            }
-
+            console.log(`🛠️ [ChatPanel] Executing tool ${call.name} with args:`, call.args);
             const toolResult = await deviceBridge.executeTool(call.name, call.args || {});
             if (onToolExecuted) {
               onToolExecuted({
                 name: call.name,
-                args: call.args,
+                args: call.args || {},
                 result: toolResult,
               });
             }
-          } catch (tErr) {
-            console.error('Tool execution error:', tErr);
+          } catch (toolErr) {
+            console.warn(`Tool execution error for ${call.name}:`, toolErr);
           }
         }
       }
-
-      const assistantMessage: ChatMessage = {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        text: replyText,
-        timestamp: Date.now(),
-        toolCalls: functionCalls,
-      };
-
-      crossSessionMemory.recordInteraction('iris', replyText);
-      setMessages((prev) => [...prev, assistantMessage]);
     } catch (err: any) {
       console.error('Chat error:', err);
-      const errorMessage: ChatMessage = {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        text: `Arey yaar, error aa gaya: ${err.message || 'Network issue'}. Ek baar phir se try kar na.`,
-        timestamp: Date.now(),
-      };
-      setMessages((prev) => [...prev, errorMessage]);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `err_${Date.now()}`,
+          role: 'iris',
+          text: `⚠️ Error: ${err?.message || 'Could not connect to Iris server.'}`,
+          timestamp: Date.now(),
+        },
+      ]);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleSpeakMessage = async (msgId: string, text: string) => {
-    triggerHaptic('light');
-    if (playingAudioId === msgId) {
-      if (audioRef.current) {
-        audioRef.current.pause();
-      }
-      setPlayingAudioId(null);
+  const handlePlayTTS = async (messageId: string, text: string) => {
+    if (isPlayingAudioId === messageId) {
+      setIsPlayingAudioId(null);
       return;
     }
 
     try {
-      setPlayingAudioId(msgId);
+      setIsPlayingAudioId(messageId);
       const res = await fetch('/api/tts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({
+          text,
+          voice: localStorage.getItem('iris_preferred_voice') || 'Leda',
+        }),
       });
 
-      if (!res.ok) throw new Error('TTS failed');
+      if (!res.ok) {
+        throw new Error('Failed to generate speech audio');
+      }
+
       const data = await res.json();
-
       if (data.audio) {
-        const byteCharacters = atob(data.audio);
-        const byteNumbers = new Array(byteCharacters.length);
-        for (let i = 0; i < byteCharacters.length; i++) {
-          byteNumbers[i] = byteCharacters.charCodeAt(i);
-        }
-        const byteArray = new Uint8Array(byteNumbers);
-        const wavBlob = createWavBlob(byteArray, 24000);
-        const audioUrl = URL.createObjectURL(wavBlob);
-
-        if (audioRef.current) {
-          audioRef.current.pause();
-        }
-
-        const audio = new Audio(audioUrl);
-        audioRef.current = audio;
-        audio.onended = () => {
-          setPlayingAudioId(null);
-          URL.revokeObjectURL(audioUrl);
-        };
-        audio.onerror = () => {
-          setPlayingAudioId(null);
-        };
+        const audio = new Audio(`data:audio/mp3;base64,${data.audio}`);
+        audio.onended = () => setIsPlayingAudioId(null);
+        audio.onerror = () => setIsPlayingAudioId(null);
         await audio.play();
-      }
-    } catch (err) {
-      console.error('TTS playback error:', err);
-      if ('speechSynthesis' in window) {
-        const clean = text.replace(/```[\s\S]*?```/g, '').slice(0, 200);
-        const utter = new SpeechSynthesisUtterance(clean);
-        utter.onend = () => setPlayingAudioId(null);
-        utter.onerror = () => setPlayingAudioId(null);
-        window.speechSynthesis.speak(utter);
       } else {
-        setPlayingAudioId(null);
+        setIsPlayingAudioId(null);
       }
+    } catch (e: any) {
+      console.warn('TTS playback error:', e);
+      setAudioError('Could not play audio for this message');
+      setIsPlayingAudioId(null);
     }
-  };
-
-  const createWavBlob = (pcmData: Uint8Array, sampleRate: number): Blob => {
-    const numChannels = 1;
-    const bitsPerSample = 16;
-    const byteRate = (sampleRate * numChannels * bitsPerSample) / 8;
-    const blockAlign = (numChannels * bitsPerSample) / 8;
-    const wavHeader = new ArrayBuffer(44);
-    const view = new DataView(wavHeader);
-
-    writeString(view, 0, 'RIFF');
-    view.setUint32(4, 36 + pcmData.length, true);
-    writeString(view, 8, 'WAVE');
-
-    writeString(view, 12, 'fmt ');
-    view.setUint32(16, 16, true);
-    view.setUint16(20, 1, true);
-    view.setUint16(22, numChannels, true);
-    view.setUint32(24, sampleRate, true);
-    view.setUint32(28, byteRate, true);
-    view.setUint16(32, blockAlign, true);
-    view.setUint16(34, bitsPerSample, true);
-
-    writeString(view, 36, 'data');
-    view.setUint32(40, pcmData.length, true);
-
-    return new Blob([wavHeader, pcmData.buffer as ArrayBuffer], { type: 'audio/wav' });
-  };
-
-  const writeString = (view: DataView, offset: number, string: string) => {
-    for (let i = 0; i < string.length; i++) {
-      view.setUint8(offset + i, string.charCodeAt(i));
-    }
-  };
-
-  const promptSuggestions = [
-    { label: '📷 Analyze Photo', prompt: 'Tell me what is in this photo, analyze details and any text.', type: 'image' },
-    { label: '🎥 Explain Video', prompt: 'Summarize what happens in this video clip step by step.', type: 'video' },
-    { label: '💻 Edit / Fix Code', prompt: 'Inspect this code, find any bugs or improvements, and output the updated version.', type: 'document' },
-    { label: '🤝 Who is Dev?', prompt: 'Dev kaun hai? Tumhara relation kya hai?' },
-    { label: '💬 WhatsApp kholo', prompt: 'WhatsApp open karo.' },
-  ];
-
-  const handleSuggestionClick = (item: { label: string; prompt: string; type?: string }) => {
-    triggerHaptic('light');
-    if (item.type === 'image' && attachments.length === 0) {
-      setInputText(item.prompt);
-      imageInputRef.current?.click();
-      return;
-    }
-    if (item.type === 'video' && attachments.length === 0) {
-      setInputText(item.prompt);
-      videoInputRef.current?.click();
-      return;
-    }
-    if (item.type === 'document' && attachments.length === 0) {
-      setInputText(item.prompt);
-      fileInputRef.current?.click();
-      return;
-    }
-    handleSendMessage(item.prompt);
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-900/10 backdrop-blur-xs animate-in fade-in duration-200">
-      {/* White Theme Glossy Container: 35% glass transparency so live background is visible through the panel */}
-      <div className="w-full max-w-3xl h-[92vh] sm:h-[88vh] bg-white/35 border border-white/70 rounded-2xl shadow-2xl shadow-blue-500/10 backdrop-blur-xl ring-1 ring-white/60 flex flex-col overflow-hidden animate-drawer-in relative backdrop-saturate-150">
-        {/* Glossy Top Specular Highlight Overlay */}
-        <div className="absolute top-0 inset-x-0 h-16 bg-gradient-to-b from-white/60 to-transparent pointer-events-none z-10" />
+    <div
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      className={`fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 backdrop-blur-[3px] animate-motion-blur-in cursor-pointer transition-colors duration-200 ${
+        isDark ? 'bg-black/40' : 'bg-slate-900/20'
+      }`}
+    >
+      {/* 40% Transparent Glass Window (Adapts to Light / Dark Theme) */}
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className={`w-full max-w-3xl h-[92vh] sm:h-[88vh] rounded-2xl sm:rounded-3xl flex flex-col overflow-hidden relative backdrop-blur-2xl backdrop-saturate-150 cursor-default transition-all duration-200 ${
+          isDark
+            ? 'bg-slate-950/50 border border-cyan-500/40 shadow-[0_20px_60px_rgba(6,182,212,0.25)] ring-1 ring-cyan-500/30 text-white'
+            : 'bg-white/40 border border-white/80 shadow-[0_20px_60px_rgba(14,165,233,0.22)] ring-1 ring-white/70 text-slate-900'
+        }`}
+      >
+        {/* Glossy Top Specular Highlight */}
+        <div className={`absolute top-0 inset-x-0 h-16 pointer-events-none z-10 ${
+          isDark ? 'bg-gradient-to-b from-cyan-500/15 to-transparent' : 'bg-gradient-to-b from-white/70 to-transparent'
+        }`} />
 
-        {/* White Theme Header */}
-        <div className="px-4 py-3.5 border-b border-white/50 bg-white/40 backdrop-blur-md flex items-center justify-between shrink-0 relative z-20">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center shadow-md shadow-blue-500/20 animate-pulse-glow">
-              <Sparkles className="w-4 h-4 text-white" />
+        {/* Ambient Glow Highlight */}
+        <div className={`absolute top-0 right-1/4 w-96 h-32 rounded-full blur-3xl pointer-events-none ${
+          isDark ? 'bg-cyan-500/20' : 'bg-cyan-400/20'
+        }`} />
+
+        {/* Header Bar */}
+        <div className={`px-4 py-3.5 backdrop-blur-md flex items-center justify-between z-20 shrink-0 border-b ${
+          isDark ? 'bg-slate-950/70 border-cyan-500/25' : 'bg-white/50 border-slate-200/60'
+        }`}>
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-blue-600 to-cyan-500 flex items-center justify-center shadow-md shadow-blue-500/25 text-white">
+              <Sparkles className="w-5 h-5" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="font-bold text-sm sm:text-base text-slate-900">Iris Chat & Multimodal Lab</h3>
-                <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-full bg-blue-100/90 text-blue-800 border border-blue-200/80 shadow-2xs">
-                  Files • Photos • Videos
+                <h3 className={`font-bold text-sm sm:text-base tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                  I.R.I.S. Multimodal Chat & File Lab
+                </h3>
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold border ${
+                  isDark
+                    ? 'bg-cyan-500/20 border-cyan-400/40 text-cyan-300'
+                    : 'bg-blue-100/90 border-blue-300/60 text-blue-800'
+                }`}>
+                  AI v3.5
                 </span>
               </div>
-              <p className="text-[11px] text-slate-700 font-medium">
-                Send files, code, pictures, or video clips to read, edit & analyze
+              <p className={`text-[11px] font-mono truncate font-medium ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+                Analyze files, code, images, videos & execute live device actions
               </p>
             </div>
           </div>
-          <button
-            onClick={() => { triggerHaptic('light'); onClose(); }}
-            className="p-2 rounded-xl text-slate-600 hover:text-slate-900 hover:bg-white/60 transition-colors spring-button"
-            title="Close Chat"
-          >
-            <X className="w-5 h-5" />
-          </button>
+
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => setMessages([])}
+              title="Clear chat history"
+              className={`p-2 rounded-xl transition-colors spring-button ${
+                isDark ? 'text-slate-400 hover:text-rose-400 hover:bg-slate-800/80' : 'text-slate-500 hover:text-rose-600 hover:bg-rose-50/80'
+              }`}
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+            <button
+              onClick={onClose}
+              title="Close Chat Panel"
+              className={`p-2 rounded-xl transition-colors spring-button ${
+                isDark ? 'text-slate-400 hover:text-white hover:bg-slate-800/80' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-200/60'
+              }`}
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
-        {/* Microphone Warning Fallback Banner */}
+        {/* Mic Standby Banner if applicable */}
         {hasMicError && (
-          <div className="px-4 py-2 bg-amber-50/80 border-b border-amber-200/80 text-amber-900 text-xs flex items-center gap-2 shrink-0 animate-fadeIn backdrop-blur-sm z-20">
-            <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 animate-bounce" />
-            <span className="font-medium">
-              Microphone issue detected in browser? You can seamlessly chat, send voice requests in text, and analyze files with Iris right here!
-            </span>
+          <div className={`px-4 py-2 border-b flex items-center gap-2 text-xs shrink-0 font-medium z-10 backdrop-blur-md ${
+            isDark ? 'bg-amber-500/15 border-amber-500/30 text-amber-300' : 'bg-amber-50/90 border-amber-200/80 text-amber-900'
+          }`}>
+            <AlertCircle className="w-4 h-4 shrink-0 text-amber-500" />
+            <span>Voice mic is in standby. You can type, attach files, and chat with Iris seamlessly here!</span>
           </div>
         )}
 
-        {/* Messages Scroll Area */}
-        <FuturisticScrollTrack
-          className="flex-1 p-4 bg-transparent relative z-20"
-          autoScrollOnUpdate={messages.length + (isLoading ? 1 : 0)}
-        >
-          <div className="space-y-4 pr-2">
-            {messages.map((m) => (
-              <div
-                key={m.id}
-                className={`flex gap-3 animate-bubble-pop ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}
-              >
-                {m.role === 'assistant' && (
-                  <div className="w-7 h-7 rounded-lg bg-blue-100 border border-blue-200 flex items-center justify-center shrink-0 mt-1 shadow-xs">
-                    <Bot className="w-4 h-4 text-blue-600" />
-                  </div>
-                )}
-
+        {/* Message Stream */}
+        <div className="flex-1 overflow-hidden p-3 sm:p-4 relative z-10">
+          <FuturisticScrollTrack className="h-full pr-1.5" autoScrollOnUpdate={messages}>
+            <div className="space-y-4">
+              {messages.map((msg) => (
                 <div
-                  className={`chat-bubble-interactive max-w-[85%] sm:max-w-[78%] rounded-2xl p-3.5 shadow-sm backdrop-blur-md transition-all ${
-                    m.role === 'user'
-                      ? 'bg-gradient-to-r from-blue-600/90 to-indigo-600/90 text-white rounded-tr-none shadow-blue-500/20'
-                      : 'bg-white/70 hover:bg-white/80 text-slate-900 border border-white/80 rounded-tl-none hover:border-blue-300 shadow-xs'
-                  }`}
+                  key={msg.id}
+                  className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} space-y-1.5 animate-item-blur`}
                 >
-                  {/* Render Attachments if any */}
-                  {m.files && m.files.length > 0 && (
-                    <div className="mb-2.5 space-y-2">
-                      {m.files.map((file) => (
-                        <div
-                          key={file.id}
-                          className="rounded-xl overflow-hidden bg-white/90 border border-slate-200 p-2 text-xs transition-transform hover:scale-[1.01]"
-                        >
-                          {file.type === 'image' && file.previewUrl && (
-                            <div className="mb-1.5 rounded-lg overflow-hidden max-h-48 flex justify-center bg-slate-100">
+                  {/* Sender Badge */}
+                  <div className={`flex items-center gap-1.5 text-[10px] font-mono px-1 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                    {msg.role === 'user' ? (
+                      <span className={`${isDark ? 'text-cyan-400' : 'text-blue-700'} font-bold flex items-center gap-1`}>
+                        YOU <User className="w-3 h-3" />
+                      </span>
+                    ) : (
+                      <span className={`${isDark ? 'text-blue-400' : 'text-indigo-700'} font-bold flex items-center gap-1`}>
+                        <Bot className="w-3 h-3" /> I.R.I.S.
+                      </span>
+                    )}
+                    <span>•</span>
+                    <span>{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                  </div>
+
+                  {/* Message Bubble */}
+                  <div
+                    className={`max-w-[92%] sm:max-w-[85%] rounded-2xl px-4 py-3 text-xs sm:text-sm font-medium shadow-md transition-all ${
+                      msg.role === 'user'
+                        ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-tr-xs shadow-blue-500/20'
+                        : isDark
+                        ? 'bg-slate-900/85 hover:bg-slate-900/95 border border-slate-700 text-slate-100 rounded-tl-xs shadow-slate-950/30 backdrop-blur-md'
+                        : 'bg-white/80 hover:bg-white/90 border border-white/90 text-slate-900 rounded-tl-xs shadow-slate-900/5 backdrop-blur-md'
+                    }`}
+                  >
+                    {/* Attached Files rendering */}
+                    {msg.files && msg.files.length > 0 && (
+                      <div className="mb-3 space-y-2">
+                        {msg.files.map((file) => (
+                          <div
+                            key={file.id}
+                            className={`p-2 rounded-xl flex items-center gap-2.5 text-xs shadow-2xs ${
+                              isDark ? 'bg-slate-950/70 border border-white/10 text-slate-200' : 'bg-white/90 border border-slate-200/80 text-slate-800'
+                            }`}
+                          >
+                            {file.type === 'image' && file.previewUrl ? (
                               <img
                                 src={file.previewUrl}
                                 alt={file.name}
-                                className="object-contain max-h-48 w-auto rounded-lg"
+                                className="w-12 h-12 object-cover rounded-lg border border-slate-200/30 shrink-0"
                               />
+                            ) : (
+                              <div className="w-9 h-9 rounded-lg bg-blue-500/20 border border-blue-500/30 flex items-center justify-center text-blue-400 shrink-0">
+                                {file.type === 'video' ? <VideoIcon className="w-4 h-4" /> : <FileCode className="w-4 h-4" />}
+                              </div>
+                            )}
+                            <div className="min-w-0 flex-1">
+                              <div className={`font-semibold truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>{file.name}</div>
+                              <div className="text-[10px] text-slate-400 uppercase font-mono">
+                                {file.type} • {(file.size / 1024).toFixed(1)} KB
+                              </div>
                             </div>
-                          )}
-                          {file.type === 'video' && file.previewUrl && (
-                            <div className="mb-1.5 rounded-lg overflow-hidden max-h-48 bg-slate-100">
-                              <video
-                                src={file.previewUrl}
-                                controls
-                                className="w-full max-h-48 rounded-lg"
-                              />
-                            </div>
-                          )}
-                          <div className="flex items-center gap-2 text-slate-800">
-                            {file.type === 'image' && <ImageIcon className="w-3.5 h-3.5 text-blue-600" />}
-                            {file.type === 'video' && <VideoIcon className="w-3.5 h-3.5 text-emerald-600" />}
-                            {file.type === 'document' && <FileText className="w-3.5 h-3.5 text-indigo-600" />}
-                            <span className="font-semibold truncate">{file.name}</span>
-                            <span className="text-[10px] text-slate-500 font-mono">
-                              ({(file.size / 1024).toFixed(1)} KB)
-                            </span>
                           </div>
-                        </div>
-                      ))}
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Text Body */}
+                    <div className={`break-words leading-relaxed ${isDark ? 'text-slate-100' : 'text-slate-900'}`}>
+                      <MarkdownRenderer content={msg.text} />
                     </div>
-                  )}
 
-                  {/* Message Text with Markdown Rendering */}
-                  {m.role === 'assistant' ? (
-                    <MarkdownRenderer content={m.text} />
-                  ) : (
-                    <p className="text-sm whitespace-pre-wrap leading-relaxed">{m.text}</p>
-                  )}
-
-                  {/* Assistant Message Actions (TTS Speak) */}
-                  {m.role === 'assistant' && (
-                    <div className="mt-2.5 pt-2 border-t border-slate-200/80 flex items-center justify-between text-[11px] text-slate-500">
-                      <span className="text-[10px] text-blue-600 font-mono font-bold">Iris • Gemini 3.8 Flash</span>
-                      <button
-                        onClick={() => handleSpeakMessage(m.id, m.text)}
-                        className="flex items-center gap-1 text-blue-700 hover:text-blue-900 transition-all spring-button px-2 py-0.5 rounded-lg bg-blue-50 border border-blue-200 font-bold"
-                        title="Speak response aloud"
-                      >
-                        {playingAudioId === m.id ? (
-                          <>
-                            <Pause className="w-3 h-3 text-blue-600" />
-                            <span>Stop</span>
-                          </>
-                        ) : (
-                          <>
-                            <Volume2 className="w-3 h-3 text-blue-600" />
-                            <span>Listen</span>
-                          </>
-                        )}
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                {m.role === 'user' && (
-                  <div className="w-7 h-7 rounded-lg bg-blue-600 flex items-center justify-center shrink-0 mt-1 shadow-md shadow-blue-500/20">
-                    <User className="w-4 h-4 text-white" />
+                    {/* Audio TTS button for Iris */}
+                    {msg.role === 'iris' && (
+                      <div className={`mt-2.5 pt-2 border-t flex items-center justify-between text-[11px] ${
+                        isDark ? 'border-slate-700/60 text-slate-400' : 'border-slate-200/70 text-slate-500'
+                      }`}>
+                        <button
+                          type="button"
+                          onClick={() => handlePlayTTS(msg.id, msg.text)}
+                          className={`flex items-center gap-1.5 font-mono font-bold hover:underline ${
+                            isDark ? 'text-cyan-400 hover:text-cyan-300' : 'text-blue-600 hover:text-blue-700'
+                          }`}
+                        >
+                          {isPlayingAudioId === msg.id ? (
+                            <>
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              <span>Speaking...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Volume2 className="w-3.5 h-3.5" />
+                              <span>Read Aloud</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
-            ))}
-
-            {/* Loading Indicator */}
-            {isLoading && (
-              <div className="flex gap-3 justify-start items-center animate-bubble-pop">
-                <div className="w-7 h-7 rounded-lg bg-blue-100 border border-blue-200 flex items-center justify-center shrink-0">
-                  <Bot className="w-4 h-4 text-blue-600" />
                 </div>
-                <div className="px-4 py-2.5 rounded-2xl rounded-tl-none bg-white/90 border border-blue-200 text-xs text-slate-800 flex items-center gap-2.5 shadow-md">
-                  <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
-                  <span className="font-medium">{loadingStatusText}</span>
+              ))}
+
+              {isLoading && (
+                <div className={`flex items-start gap-2 text-xs font-mono animate-pulse ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+                  <div className="w-7 h-7 rounded-lg bg-blue-500/20 border border-blue-500/30 flex items-center justify-center text-blue-400">
+                    <Bot className="w-4 h-4 animate-spin" />
+                  </div>
+                  <div className={`p-3 rounded-2xl flex items-center gap-2 shadow-sm backdrop-blur-md ${
+                    isDark ? 'bg-slate-900/90 border border-slate-700 text-slate-200' : 'bg-white/85 border border-slate-200 text-slate-800'
+                  }`}>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-500" />
+                    <span>Iris is analyzing and thinking...</span>
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
+            </div>
+          </FuturisticScrollTrack>
+        </div>
 
-            <div ref={messagesEndRef} />
-          </div>
-        </FuturisticScrollTrack>
-
-        {/* Quick Suggestion Chips */}
-        <div className="px-4 py-2 bg-white/40 border-t border-slate-200/50 flex items-center gap-1.5 overflow-x-auto no-scrollbar shrink-0 relative z-20">
-          <span className="text-[10px] uppercase font-bold text-slate-500 shrink-0 font-mono">Quick:</span>
-          {promptSuggestions.map((item, idx) => (
+        {/* Quick Prompts Carousel */}
+        <div className={`px-3 py-2 border-t backdrop-blur-md flex items-center gap-2 overflow-x-auto no-scrollbar shrink-0 z-20 ${
+          isDark ? 'bg-slate-950/60 border-cyan-500/20' : 'bg-white/50 border-slate-200/60'
+        }`}>
+          <span className={`text-[10px] font-mono font-bold uppercase shrink-0 ${isDark ? 'text-cyan-400' : 'text-blue-700'}`}>
+            Suggested:
+          </span>
+          {QUICK_PROMPTS.map((prompt, idx) => (
             <button
               key={idx}
-              onClick={() => handleSuggestionClick(item)}
-              className="text-xs px-2.5 py-1 rounded-full bg-white/80 hover:bg-blue-50 text-blue-700 hover:text-blue-900 border border-slate-200 font-semibold whitespace-nowrap transition-all spring-button shrink-0 shadow-2xs"
+              type="button"
+              onClick={() => handleSendMessage(prompt)}
+              className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition-all shrink-0 active:scale-95 shadow-2xs spring-button ${
+                isDark
+                  ? 'bg-slate-900/80 hover:bg-cyan-950/60 hover:border-cyan-500/50 border border-slate-700 text-slate-300 hover:text-cyan-200'
+                  : 'bg-white/80 hover:bg-blue-50/95 hover:border-blue-300 border border-slate-200 text-slate-700 hover:text-blue-700'
+              }`}
             >
-              {item.label}
+              {prompt}
             </button>
           ))}
         </div>
 
-        {/* Pending Attachment Previews */}
-        {attachments.length > 0 && (
-          <div className="px-4 py-2.5 bg-white/60 border-t border-slate-200/60 flex gap-2 overflow-x-auto shrink-0 animate-bubble-pop relative z-20">
-            {attachments.map((file) => (
+        {/* Attachment Tray */}
+        {attachedFiles.length > 0 && (
+          <div className={`px-4 py-2 border-t backdrop-blur-md flex items-center gap-2 overflow-x-auto shrink-0 z-20 ${
+            isDark ? 'bg-slate-950/80 border-cyan-500/20' : 'bg-white/60 border-slate-200/60'
+          }`}>
+            {attachedFiles.map((file) => (
               <div
                 key={file.id}
-                className="relative group p-2 rounded-xl bg-white border border-blue-200 text-xs flex items-center gap-2 max-w-[200px] shrink-0 transition-transform hover:scale-105 shadow-xs"
+                className={`px-2.5 py-1.5 rounded-xl border flex items-center gap-2 text-xs shadow-xs shrink-0 animate-item-blur ${
+                  isDark ? 'bg-slate-900 border-cyan-500/30 text-slate-200' : 'bg-white/90 border-blue-200 text-slate-800'
+                }`}
               >
-                {file.type === 'image' && file.previewUrl ? (
-                  <img
-                    src={file.previewUrl}
-                    alt={file.name}
-                    className="w-10 h-10 object-cover rounded-lg border border-slate-200"
-                  />
-                ) : file.type === 'video' ? (
-                  <div className="w-10 h-10 rounded-lg bg-emerald-50 flex items-center justify-center border border-emerald-200">
-                    <VideoIcon className="w-5 h-5 text-emerald-600" />
-                  </div>
-                ) : (
-                  <div className="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center border border-blue-200">
-                    <FileText className="w-5 h-5 text-blue-600" />
-                  </div>
-                )}
-                <div className="truncate flex-1">
-                  <div className="text-slate-900 text-xs font-bold truncate">{file.name}</div>
-                  <div className="text-[10px] text-slate-500 font-mono">{(file.size / 1024).toFixed(1)} KB</div>
-                </div>
+                {file.type === 'image' && <ImageIcon className="w-3.5 h-3.5 text-blue-500" />}
+                {file.type === 'video' && <VideoIcon className="w-3.5 h-3.5 text-emerald-500" />}
+                {file.type === 'document' && <FileCode className="w-3.5 h-3.5 text-indigo-500" />}
+                <span className="max-w-[120px] truncate font-medium">{file.name}</span>
                 <button
-                  onClick={() => handleRemoveAttachment(file.id)}
-                  className="p-1 rounded-full bg-slate-100 hover:bg-rose-500 hover:text-white text-slate-600 transition-colors"
-                  title="Remove file"
+                  onClick={() => setAttachedFiles((prev) => prev.filter((f) => f.id !== file.id))}
+                  className="text-slate-400 hover:text-rose-500 ml-1"
                 >
                   <X className="w-3.5 h-3.5" />
                 </button>
@@ -611,63 +531,61 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
           </div>
         )}
 
-        {/* White Theme Input Bar */}
-        <div className="p-3 bg-white/70 border-t border-slate-200/60 shrink-0 relative z-20">
-          <input
-            type="file"
-            ref={imageInputRef}
-            onChange={handleFileUpload}
-            accept="image/*"
-            multiple
-            className="hidden"
-          />
-          <input
-            type="file"
-            ref={videoInputRef}
-            onChange={handleFileUpload}
-            accept="video/*"
-            multiple
-            className="hidden"
-          />
-          <input
-            type="file"
-            ref={fileInputRef}
-            onChange={handleFileUpload}
-            accept=".txt,.py,.js,.ts,.tsx,.jsx,.json,.csv,.pdf,.md,.html,.css,.sql,.java,.c,.cpp"
-            multiple
-            className="hidden"
-          />
+        {/* Input Bar */}
+        <div className={`p-3 sm:p-4 border-t backdrop-blur-xl shrink-0 z-20 ${
+          isDark ? 'bg-slate-950/80 border-cyan-500/25' : 'bg-white/60 border-slate-200/70'
+        }`}>
+          {audioError && <p className="text-xs text-rose-500 mb-2 font-medium">{audioError}</p>}
+          <div className={`flex items-end gap-2 border rounded-2xl p-2 shadow-xs transition-all ${
+            isDark
+              ? 'bg-slate-900/90 border-cyan-500/30 focus-within:border-cyan-400 focus-within:ring-2 focus-within:ring-cyan-500/20'
+              : 'bg-white/90 border-slate-300/80 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20'
+          }`}>
+            {/* Hidden File Inputs */}
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleFileUpload}
+              multiple
+              accept="image/*,video/*,.txt,.py,.js,.ts,.tsx,.jsx,.json,.csv,.pdf,.md,.html,.css,.sql"
+              className="hidden"
+            />
+            <input
+              type="file"
+              ref={cameraInputRef}
+              onChange={handleFileUpload}
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+            />
 
-          <div className="flex items-center gap-2">
-            <div className="flex items-center gap-1 text-slate-500">
+            {/* Action Buttons */}
+            <div className="flex items-center gap-1 pb-1">
               <button
                 type="button"
-                onClick={() => { triggerHaptic('light'); imageInputRef.current?.click(); }}
-                className="p-2 rounded-xl hover:bg-blue-50 hover:text-blue-600 transition-all spring-button"
-                title="Attach Photo / Image"
-              >
-                <ImageIcon className="w-4 h-4" />
-              </button>
-              <button
-                type="button"
-                onClick={() => { triggerHaptic('light'); videoInputRef.current?.click(); }}
-                className="p-2 rounded-xl hover:bg-emerald-50 hover:text-emerald-600 transition-all spring-button"
-                title="Attach Video Clip"
-              >
-                <VideoIcon className="w-4 h-4" />
-              </button>
-              <button
-                type="button"
-                onClick={() => { triggerHaptic('light'); fileInputRef.current?.click(); }}
-                className="p-2 rounded-xl hover:bg-indigo-50 hover:text-indigo-600 transition-all spring-button"
-                title="Attach Code / File / Document"
+                onClick={() => fileInputRef.current?.click()}
+                title="Attach file, photo, video, or code"
+                className={`p-2 rounded-xl transition-colors spring-button ${
+                  isDark ? 'text-slate-400 hover:text-cyan-300 hover:bg-slate-800' : 'text-slate-500 hover:text-blue-600 hover:bg-blue-50/80'
+                }`}
               >
                 <Paperclip className="w-4 h-4" />
               </button>
+              <button
+                type="button"
+                onClick={() => cameraInputRef.current?.click()}
+                title="Snap photo with camera"
+                className={`p-2 rounded-xl transition-colors spring-button ${
+                  isDark ? 'text-slate-400 hover:text-cyan-300 hover:bg-slate-800' : 'text-slate-500 hover:text-blue-600 hover:bg-blue-50/80'
+                }`}
+              >
+                <Camera className="w-4 h-4" />
+              </button>
             </div>
 
-            <input
-              type="text"
+            {/* Textarea */}
+            <textarea
+              ref={textareaRef}
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
               onKeyDown={(e) => {
@@ -676,16 +594,20 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
                   handleSendMessage();
                 }
               }}
-              placeholder="Ask Iris anything, or ask her to read, edit, or analyze your attachments..."
-              className="flex-1 px-4 py-2.5 rounded-xl bg-white/90 border border-slate-200 text-slate-900 placeholder-slate-400 text-xs sm:text-sm font-medium focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all shadow-xs"
-              disabled={isLoading}
+              placeholder="Ask Iris anything in Hinglish or English, or send files/photos..."
+              rows={1}
+              className={`flex-1 bg-transparent border-0 text-xs sm:text-sm resize-none focus:outline-none max-h-28 py-1.5 px-2 font-medium ${
+                isDark ? 'text-white placeholder-slate-500' : 'text-slate-900 placeholder-slate-400'
+              }`}
             />
 
+            {/* Send Button */}
             <button
+              type="button"
               onClick={() => handleSendMessage()}
-              disabled={isLoading || (!inputText.trim() && attachments.length === 0)}
-              className="p-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold transition-all shadow-md shadow-blue-500/20 spring-button shrink-0"
-              title="Send Message"
+              disabled={isLoading || (!inputText.trim() && attachedFiles.length === 0)}
+              className="p-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold disabled:opacity-30 disabled:cursor-not-allowed shadow-md shadow-blue-500/25 transition-all active:scale-95 shrink-0 spring-button"
+              title="Send message (Enter)"
             >
               <Send className="w-4 h-4" />
             </button>

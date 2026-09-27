@@ -175,9 +175,9 @@ class LocationService {
           const isDenied = error.code === error.PERMISSION_DENIED;
           this.currentLocation = {
             ...this.currentLocation,
-            status: isDenied ? 'denied' : 'error',
+            status: isDenied ? 'denied' : (this.currentLocation.latitude ? 'granted' : 'error'),
             permissionState: isDenied ? 'denied' : this.currentLocation.permissionState,
-            errorMessage: errMsg,
+            errorMessage: isDenied ? errMsg : undefined,
           };
           this.notify();
           resolve(this.currentLocation);

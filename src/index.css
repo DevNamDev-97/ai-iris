@@ -7,77 +7,212 @@
   }
 }
 
-/* 60 FPS GPU-Accelerated Smooth Keyframes */
+/* 120 FPS GPU-Accelerated Hyper-Smooth Keyframes with Cinematic Motion Blur */
 @keyframes spinSlow {
-  from {
+  0% {
     transform: rotate(0deg);
   }
-  to {
+  100% {
     transform: rotate(360deg);
   }
 }
 
 @keyframes spinReverseSlow {
-  from {
+  0% {
     transform: rotate(360deg);
   }
-  to {
+  100% {
     transform: rotate(0deg);
+  }
+}
+
+@keyframes spinMotionBlur {
+  0% {
+    transform: rotate(0deg);
+    filter: blur(0.2px);
+  }
+  50% {
+    transform: rotate(180deg);
+    filter: blur(1.4px);
+  }
+  100% {
+    transform: rotate(360deg);
+    filter: blur(0.2px);
+  }
+}
+
+@keyframes spinReverseMotionBlur {
+  0% {
+    transform: rotate(360deg);
+    filter: blur(0.2px);
+  }
+  50% {
+    transform: rotate(180deg);
+    filter: blur(1.4px);
+  }
+  100% {
+    transform: rotate(0deg);
+    filter: blur(0.2px);
   }
 }
 
 @keyframes breatheSmooth {
   0%, 100% {
     transform: scale(1);
-    opacity: 0.92;
+    opacity: 0.94;
+    filter: blur(0px);
   }
   50% {
-    transform: scale(1.035);
+    transform: scale(1.045);
     opacity: 1;
+    filter: blur(0.35px);
   }
 }
 
 @keyframes pulseGlow {
   0%, 100% {
     box-shadow: 0 0 15px rgba(14, 165, 233, 0.25), inset 0 0 10px rgba(14, 165, 233, 0.15);
+    filter: drop-shadow(0 0 8px rgba(56, 189, 248, 0.3));
   }
   50% {
-    box-shadow: 0 0 30px rgba(14, 165, 233, 0.5), inset 0 0 20px rgba(14, 165, 233, 0.3);
+    box-shadow: 0 0 38px rgba(14, 165, 233, 0.6), inset 0 0 25px rgba(14, 165, 233, 0.4);
+    filter: drop-shadow(0 0 16px rgba(56, 189, 248, 0.6));
   }
 }
 
 @keyframes floatSmooth {
   0%, 100% {
     transform: translateY(0px);
+    filter: blur(0px);
   }
   50% {
-    transform: translateY(-5px);
+    transform: translateY(-6px);
+    filter: blur(0.3px);
   }
 }
 
 @keyframes bubblePopIn {
   0% {
     opacity: 0;
-    transform: translateY(12px) scale(0.96);
+    transform: translateY(18px) scale(0.92);
+    filter: blur(6px);
   }
   60% {
     opacity: 1;
-    transform: translateY(-2px) scale(1.01);
+    transform: translateY(-2px) scale(1.015);
+    filter: blur(0.8px);
   }
   100% {
     opacity: 1;
     transform: translateY(0) scale(1);
+    filter: blur(0px);
   }
 }
 
 @keyframes drawerSlideUp {
   0% {
     opacity: 0;
-    transform: translateY(24px) scale(0.98);
+    transform: translateY(32px) scale(0.96);
+    filter: blur(8px);
+  }
+  70% {
+    transform: translateY(-2px) scale(1.005);
+    filter: blur(0.8px);
   }
   100% {
     opacity: 1;
     transform: translateY(0) scale(1);
+    filter: blur(0px);
+  }
+}
+
+@keyframes motionBlurIn {
+  0% {
+    opacity: 0;
+    transform: translateY(24px) scale(0.95);
+    filter: blur(10px);
+  }
+  60% {
+    opacity: 0.9;
+    filter: blur(2px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0px);
+  }
+}
+
+/* Dedicated Dropdown Menus Cinematic Motion Blur */
+@keyframes dropdownMotionBlurDown {
+  0% {
+    opacity: 0;
+    transform: translateY(-14px) scale(0.94);
+    filter: blur(9px);
+  }
+  50% {
+    opacity: 0.85;
+    filter: blur(2.5px);
+  }
+  80% {
+    transform: translateY(1.5px) scale(1.008);
+    filter: blur(0.5px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0px);
+  }
+}
+
+@keyframes dropdownMotionBlurUp {
+  0% {
+    opacity: 0;
+    transform: translateY(14px) scale(0.94);
+    filter: blur(9px);
+  }
+  50% {
+    opacity: 0.85;
+    filter: blur(2.5px);
+  }
+  80% {
+    transform: translateY(-1.5px) scale(1.008);
+    filter: blur(0.5px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0px);
+  }
+}
+
+@keyframes trayExpandMotionBlur {
+  0% {
+    opacity: 0;
+    transform: translateY(-10px) scaleY(0.92);
+    filter: blur(8px);
+  }
+  65% {
+    opacity: 0.92;
+    filter: blur(1.5px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scaleY(1);
+    filter: blur(0px);
+  }
+}
+
+@keyframes itemMotionBlurCascade {
+  0% {
+    opacity: 0;
+    transform: translateX(-10px) translateY(6px);
+    filter: blur(5px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0) translateY(0);
+    filter: blur(0px);
   }
 }
 
@@ -92,59 +227,98 @@
 
 @keyframes rippleWave {
   0% {
-    transform: scale(0.85);
-    opacity: 0.9;
+    transform: scale(0.8);
+    opacity: 0.95;
+    filter: blur(0.5px);
   }
   50% {
-    transform: scale(1.15);
-    opacity: 0.5;
+    transform: scale(1.2);
+    opacity: 0.55;
+    filter: blur(2.5px);
   }
   100% {
-    transform: scale(1.45);
+    transform: scale(1.6);
     opacity: 0;
+    filter: blur(5px);
   }
 }
 
-/* 60 FPS Utility Classes */
+/* 120 FPS High-Fidelity Motion Blur Utility Classes */
 .animate-spin-slow {
-  animation: spinSlow 16s linear infinite;
-  will-change: transform;
+  animation: spinMotionBlur 18s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  will-change: transform, filter;
 }
 
 .animate-spin-reverse {
-  animation: spinReverseSlow 20s linear infinite;
-  will-change: transform;
+  animation: spinReverseMotionBlur 22s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  will-change: transform, filter;
 }
 
 .animate-breathe-smooth {
-  animation: breatheSmooth 3.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
-  will-change: transform, opacity;
+  animation: breatheSmooth 3.8s cubic-bezier(0.37, 0, 0.63, 1) infinite;
+  will-change: transform, opacity, filter;
 }
 
 .animate-pulse-glow {
-  animation: pulseGlow 2.8s cubic-bezier(0.4, 0, 0.2, 1) infinite;
-  will-change: box-shadow;
+  animation: pulseGlow 2.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  will-change: box-shadow, filter;
 }
 
 .animate-float-smooth {
-  animation: floatSmooth 4s ease-in-out infinite;
-  will-change: transform;
+  animation: floatSmooth 4.2s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  will-change: transform, filter;
 }
 
 .animate-bubble-pop {
-  animation: bubblePopIn 0.32s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-  will-change: transform, opacity;
+  animation: bubblePopIn 0.38s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  will-change: transform, opacity, filter;
 }
 
 .animate-drawer-in {
-  animation: drawerSlideUp 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-  will-change: transform, opacity;
+  animation: drawerSlideUp 0.42s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  will-change: transform, opacity, filter;
+}
+
+.animate-motion-blur-in {
+  animation: motionBlurIn 0.42s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  will-change: transform, opacity, filter;
+}
+
+/* Dropdown Menu & Select Motion Blur Classes */
+.animate-dropdown-blur {
+  animation: dropdownMotionBlurDown 0.34s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  transform-origin: top center;
+  will-change: transform, opacity, filter;
+}
+
+.animate-dropdown-blur-up {
+  animation: dropdownMotionBlurUp 0.34s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  transform-origin: bottom center;
+  will-change: transform, opacity, filter;
+}
+
+.animate-tray-blur {
+  animation: trayExpandMotionBlur 0.36s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  transform-origin: top center;
+  will-change: transform, opacity, filter;
+}
+
+.animate-item-blur {
+  animation: itemMotionBlurCascade 0.28s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  will-change: transform, opacity, filter;
 }
 
 .animate-shimmer {
-  background: linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.4) 50%, rgba(255,255,255,0) 100%);
+  background: linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.45) 50%, rgba(255,255,255,0) 100%);
   background-size: 200% 100%;
-  animation: subtleShimmer 2.5s infinite;
+  animation: subtleShimmer 2.4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Motion Blur Backdrop Glass */
+.motion-blur-glass {
+  backdrop-filter: blur(18px) saturate(190%);
+  -webkit-backdrop-filter: blur(18px) saturate(190%);
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 /* Smooth Slider Styling */
@@ -161,7 +335,7 @@ input[type="range"]::-webkit-slider-runnable-track {
   background: #e2e8f0;
   height: 6px;
   border-radius: 9999px;
-  transition: background 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: background 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 input[type="range"]:focus::-webkit-slider-runnable-track {
@@ -178,43 +352,58 @@ input[type="range"]::-webkit-slider-thumb {
   border-radius: 9999px;
   border: 2px solid #ffffff;
   box-shadow: 0 2px 6px rgba(37, 99, 235, 0.4);
-  transition: transform 0.18s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.18s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.18s ease;
+  transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.22s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.22s ease;
   will-change: transform;
 }
 
 input[type="range"]:hover::-webkit-slider-thumb {
-  transform: scale(1.22);
-  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.6);
+  transform: scale(1.25);
+  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.6);
   background-color: #1d4ed8;
 }
 
 input[type="range"]:active::-webkit-slider-thumb {
-  transform: scale(1.35);
-  box-shadow: 0 4px 16px rgba(37, 99, 235, 0.8);
+  transform: scale(1.38);
+  box-shadow: 0 4px 18px rgba(37, 99, 235, 0.85);
   background-color: #1e40af;
 }
 
-/* Interactive Spring Physics for Buttons */
+/* Interactive Spring Physics for Buttons & Cards with Motion Blur feedback */
 .spring-button {
-  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.2s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.2s ease, border-color 0.2s ease;
-  will-change: transform;
+  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.25s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.2s ease, border-color 0.2s ease, filter 0.2s ease;
+  will-change: transform, filter;
 }
 
 .spring-button:hover {
-  transform: translateY(-1.5px) scale(1.015);
+  transform: translateY(-2px) scale(1.02);
+  filter: drop-shadow(0 4px 10px rgba(14, 165, 233, 0.25));
 }
 
 .spring-button:active {
-  transform: translateY(0.5px) scale(0.965);
+  transform: translateY(1px) scale(0.965);
+  filter: blur(0.4px);
 }
 
 /* Chat bubble hover tactile feedback */
 .chat-bubble-interactive {
-  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.25s cubic-bezier(0.16, 1, 0.3, 1);
-  will-change: transform;
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.25s cubic-bezier(0.16, 1, 0.3, 1), filter 0.25s ease;
+  will-change: transform, filter;
 }
 
 .chat-bubble-interactive:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 6px 18px -2px rgba(0, 0, 0, 0.08);
+  transform: translateY(-1.5px);
+  box-shadow: 0 8px 22px -2px rgba(0, 0, 0, 0.1);
+  filter: drop-shadow(0 2px 8px rgba(14, 165, 233, 0.12));
 }
+
+/* Dropdown Menu Item Hover Transitions */
+.dropdown-item-hover {
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.18s ease, filter 0.2s ease, padding 0.2s ease;
+  will-change: transform, filter;
+}
+
+.dropdown-item-hover:hover {
+  transform: translateX(4px);
+  filter: drop-shadow(0 2px 6px rgba(14, 165, 233, 0.18));
+}
+

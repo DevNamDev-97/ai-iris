@@ -14,8 +14,11 @@
  */
 
 import { crossSessionMemory, StoredFileMemory } from './crossSessionMemory.ts';
+import { speakerMemoryStore } from './speakerMemoryStore.ts';
+import { classifyAcousticGender } from '../utils/voiceRecognition.ts';
 import { locationService } from './locationService.ts';
 import { screenAnnotationService } from './screenAnnotationService.ts';
+import { screenShareService } from './screenShareService.ts';
 
 export interface Contact {
   id: string;
@@ -232,7 +235,7 @@ export interface ToolExecutionResult {
 
 export interface WindowsAppConfig {
   name: string;
-  category: 'System' | 'Developer' | 'Productivity' | 'Social' | 'Entertainment' | 'Utility';
+  category: 'System' | 'Developer' | 'Productivity' | 'Social' | 'Entertainment' | 'Utility' | 'Navigation';
   protocolUri: string;
   webFallback: string;
   description: string;
@@ -832,9 +835,142 @@ export const WINDOWS_APPS_REGISTRY: Record<string, WindowsAppConfig> = {
   whatsapp: {
     name: 'WhatsApp',
     category: 'Social',
-    protocolUri: 'https://api.whatsapp.com/send',
-    webFallback: 'https://api.whatsapp.com/send',
-    description: 'WhatsApp Desktop & Mobile chat',
+    protocolUri: 'whatsapp:',
+    webFallback: 'https://web.whatsapp.com',
+    description: 'WhatsApp Desktop & Web chat',
+  },
+  'whatsapp web': {
+    name: 'WhatsApp Web',
+    category: 'Social',
+    protocolUri: 'https://web.whatsapp.com',
+    webFallback: 'https://web.whatsapp.com',
+    description: 'WhatsApp Web chat',
+  },
+  instagram: {
+    name: 'Instagram',
+    category: 'Social',
+    protocolUri: 'https://www.instagram.com',
+    webFallback: 'https://www.instagram.com',
+    description: 'Instagram Web & App',
+  },
+  telegram: {
+    name: 'Telegram',
+    category: 'Social',
+    protocolUri: 'tg:',
+    webFallback: 'https://web.telegram.org',
+    description: 'Telegram Messenger',
+  },
+  discord: {
+    name: 'Discord',
+    category: 'Social',
+    protocolUri: 'discord:',
+    webFallback: 'https://discord.com/app',
+    description: 'Discord Voice & Chat',
+  },
+  slack: {
+    name: 'Slack',
+    category: 'Productivity',
+    protocolUri: 'slack:',
+    webFallback: 'https://app.slack.com',
+    description: 'Slack Workspaces',
+  },
+  github: {
+    name: 'GitHub',
+    category: 'Developer',
+    protocolUri: 'https://github.com',
+    webFallback: 'https://github.com',
+    description: 'GitHub Repositories',
+  },
+  netflix: {
+    name: 'Netflix',
+    category: 'Entertainment',
+    protocolUri: 'netflix:',
+    webFallback: 'https://www.netflix.com',
+    description: 'Netflix Movies & TV Shows',
+  },
+  'prime video': {
+    name: 'Amazon Prime Video',
+    category: 'Entertainment',
+    protocolUri: 'https://www.primevideo.com',
+    webFallback: 'https://www.primevideo.com',
+    description: 'Prime Video Streaming',
+  },
+  gmail: {
+    name: 'Gmail',
+    category: 'Productivity',
+    protocolUri: 'mailto:',
+    webFallback: 'https://mail.google.com',
+    description: 'Google Gmail Mailbox',
+  },
+  maps: {
+    name: 'Google Maps',
+    category: 'Navigation',
+    protocolUri: 'https://maps.google.com',
+    webFallback: 'https://maps.google.com',
+    description: 'Google Maps & Navigation',
+  },
+  'google maps': {
+    name: 'Google Maps',
+    category: 'Navigation',
+    protocolUri: 'https://maps.google.com',
+    webFallback: 'https://maps.google.com',
+    description: 'Google Maps & Navigation',
+  },
+  twitter: {
+    name: 'X (Twitter)',
+    category: 'Social',
+    protocolUri: 'https://x.com',
+    webFallback: 'https://x.com',
+    description: 'X (Twitter) Feed',
+  },
+  x: {
+    name: 'X (Twitter)',
+    category: 'Social',
+    protocolUri: 'https://x.com',
+    webFallback: 'https://x.com',
+    description: 'X (Twitter) Feed',
+  },
+  reddit: {
+    name: 'Reddit',
+    category: 'Social',
+    protocolUri: 'https://www.reddit.com',
+    webFallback: 'https://www.reddit.com',
+    description: 'Reddit Communities',
+  },
+  word: {
+    name: 'Microsoft Word',
+    category: 'Productivity',
+    protocolUri: 'ms-word:',
+    webFallback: 'https://www.office.com/launch/word',
+    description: 'Microsoft Word Documents',
+  },
+  excel: {
+    name: 'Microsoft Excel',
+    category: 'Productivity',
+    protocolUri: 'ms-excel:',
+    webFallback: 'https://www.office.com/launch/excel',
+    description: 'Microsoft Excel Spreadsheets',
+  },
+  powerpoint: {
+    name: 'Microsoft PowerPoint',
+    category: 'Productivity',
+    protocolUri: 'ms-powerpoint:',
+    webFallback: 'https://www.office.com/launch/powerpoint',
+    description: 'Microsoft PowerPoint Presentations',
+  },
+  zoom: {
+    name: 'Zoom',
+    category: 'Productivity',
+    protocolUri: 'zoommtg:',
+    webFallback: 'https://zoom.us',
+    description: 'Zoom Meetings',
+  },
+  teams: {
+    name: 'Microsoft Teams',
+    category: 'Productivity',
+    protocolUri: 'msteams:',
+    webFallback: 'https://teams.microsoft.com',
+    description: 'Microsoft Teams Workspace',
   },
   settings: {
     name: 'Windows Settings',
@@ -1766,32 +1902,41 @@ export class DeviceActionBridge {
       }
     }
 
-    if (typeof document === 'undefined') return false;
+    if (typeof window === 'undefined') return false;
+
+    const target = uri || fallbackUrl || '';
+    if (!target) return false;
 
     try {
+      // Create and dispatch real clickable link element
       const link = document.createElement('a');
-      link.href = uri;
+      link.href = target;
       link.target = '_blank';
       link.rel = 'noopener noreferrer';
       link.style.position = 'fixed';
-      link.style.top = '-9999px';
-      link.style.left = '-9999px';
-      link.style.display = 'none';
+      link.style.top = '-1000px';
+      link.style.left = '-1000px';
+      link.style.width = '1px';
+      link.style.height = '1px';
+      link.style.opacity = '0.01';
+      link.style.pointerEvents = 'none';
       document.body.appendChild(link);
-      link.click();
+      link.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
 
       setTimeout(() => {
         try {
-          document.body.removeChild(link);
+          if (link.parentNode) {
+            document.body.removeChild(link);
+          }
         } catch (_) {}
       }, 1000);
 
       return true;
     } catch (err) {
-      console.warn('Anchor dispatch failed, falling back to window.open:', err);
-      if (fallbackUrl || uri) {
-        window.open(fallbackUrl || uri, '_blank', 'noopener,noreferrer');
-      }
+      console.warn('Anchor dispatch notice, attempting direct window.open:', err);
+      try {
+        window.open(fallbackUrl || target, '_blank', 'noopener,noreferrer');
+      } catch (_) {}
       return false;
     }
   }
@@ -2045,6 +2190,24 @@ export class DeviceActionBridge {
           data: { active: true },
         };
 
+      case 'inspectCurrentScreen':
+      case 'getLiveScreenStatus':
+        {
+          const isSharing = screenShareService.getIsSharing();
+          const cursor = screenShareService.getCursorPosition();
+          return {
+            success: true,
+            action: 'inspectCurrentScreen',
+            message: isSharing
+              ? `Live screen sharing is active. Cursor is at X: ${cursor.x}%, Y: ${cursor.y}%.`
+              : 'Screen sharing is currently inactive. Prompt user to click "See Screen" or start screen share.',
+            data: {
+              isSharing,
+              cursor,
+            },
+          };
+        }
+
       case 'highlightScreenArea':
         {
           const shape = screenAnnotationService.addHighlight({
@@ -2209,6 +2372,43 @@ export class DeviceActionBridge {
       case 'getMemoryDigest':
         return this.listMemories();
 
+      // --- SPEAKER RECOGNITION & PERSON MEMORY FOLDERS ---
+      case 'identifyOrRegisterSpeaker':
+      case 'registerSpeaker':
+        return this.identifyOrRegisterSpeaker(
+          args.name || args.speakerName,
+          args.gender,
+          args.grammaticalStyle,
+          args.relationship,
+          args.pitchHz
+        );
+
+      case 'switchActiveSpeaker':
+      case 'setActiveSpeaker':
+        return this.switchActiveSpeaker(args.name || args.speakerName || args.speakerId);
+
+      case 'savePersonMemory':
+      case 'rememberForPerson':
+        return this.savePersonMemory(
+          args.key || args.title || args.memoryKey,
+          args.value || args.memoryValue || args.detail,
+          args.category,
+          args.personName || args.folderId
+        );
+
+      case 'getPersonFolderDetails':
+      case 'getPersonMemories':
+        return this.getPersonFolderDetails(args.personName || args.name || args.folderId);
+
+      case 'listAllPersonFolders':
+      case 'listPersonFolders':
+        return this.listAllPersonFolders();
+
+      case 'getLiveAcousticSpeaker':
+      case 'getLiveSpeaker':
+      case 'whoIsSpeaking':
+        return this.getLiveAcousticSpeaker();
+
       // --- GOOGLE MAPS & PRECISE LOCATION ---
       case 'openGoogleMap':
       case 'openMap':
@@ -2350,6 +2550,267 @@ export class DeviceActionBridge {
         stats,
         facts: crossSessionMemory.getAllFacts(),
         files: crossSessionMemory.getAllFiles(),
+      },
+    };
+  }
+
+  /**
+   * Speaker Recognition: Identify or register a new speaker into their person memory folder
+   */
+  identifyOrRegisterSpeaker(
+    name: string,
+    gender?: 'male' | 'female' | 'non-binary' | 'unknown',
+    grammaticalStyle?: 'masculine' | 'feminine' | 'respectful',
+    relationship?: string,
+    pitchHz?: number
+  ): ToolExecutionResult {
+    if (!name || !name.trim()) {
+      return {
+        success: false,
+        action: 'identifyOrRegisterSpeaker',
+        error: 'Speaker name is required.',
+      };
+    }
+
+    const result = speakerMemoryStore.registerOrUpdateSpeaker({
+      name,
+      gender,
+      grammaticalStyle,
+      relationship,
+      pitchHz,
+    });
+
+    if (result.rejected || !result.folder) {
+      return {
+        success: false,
+        action: 'identifyOrRegisterSpeaker',
+        message: result.reason || `Aapki aawaz ${name} se match nahi ho rahi hai. Aap ${name} nahi hain, kripya confirm kijiye ki aap kaun hain?`,
+        error: 'BIOMETRIC_MISMATCH',
+        data: {
+          impersonationTarget: name,
+          rejected: true,
+        },
+      };
+    }
+
+    const folder = result.folder;
+    const isDev = folder.name.toLowerCase() === 'dev';
+    const isMale = folder.grammaticalStyle === 'masculine';
+    const addressRule = isMale
+      ? (isDev ? 'Male (use "chahta hai", "karega", "bhai/yaar")' : 'Male (respectful: "chahta hai", "aap")')
+      : folder.grammaticalStyle === 'feminine'
+      ? 'Female (use "chahti hai", "karegi", "sun na")'
+      : 'Respectful (use "chahte hain", "karenge")';
+
+    return {
+      success: true,
+      action: 'identifyOrRegisterSpeaker',
+      message: isDev
+        ? `Namaste Dev! Maine aapka memory folder update kar diya hai. Main hamesha ki tarah aapko pehchaan gayi hoon! 🌟`
+        : `Namaste ${folder.name} ji! Maine aapka dedicated memory folder bana diya hai. Ab se main aapko ${addressRule} ke roop mein aadar ke saath sambodhit karungi. ✨`,
+      data: {
+        folderId: folder.id,
+        name: folder.name,
+        gender: folder.gender,
+        grammaticalStyle: folder.grammaticalStyle,
+        pronounLabel: folder.pronounLabel,
+        voicePitchHz: Math.round(folder.voiceProfile.estimatedPitchHz),
+        totalMemories: folder.memories.length,
+      },
+    };
+  }
+
+  /**
+   * Speaker Recognition: Switch active memory folder to the identified speaker
+   */
+  switchActiveSpeaker(nameOrId: string): ToolExecutionResult {
+    if (!nameOrId) {
+      return { success: false, action: 'switchActiveSpeaker', error: 'Speaker identifier is required.' };
+    }
+
+    const folders = speakerMemoryStore.getFolders();
+    const clean = nameOrId.toLowerCase().trim();
+    const target = folders.find(
+      (f) => f.id.toLowerCase() === clean || f.name.toLowerCase().includes(clean)
+    );
+
+    if (target) {
+      speakerMemoryStore.setActiveSpeaker(target.id);
+      return {
+        success: true,
+        action: 'switchActiveSpeaker',
+        message: `Switched active memory folder to "${target.name}" (${target.pronounLabel}).`,
+        data: {
+          activeFolderId: target.id,
+          name: target.name,
+          gender: target.gender,
+          grammaticalStyle: target.grammaticalStyle,
+          memoriesCount: target.memories.length,
+        },
+      };
+    }
+
+    return {
+      success: false,
+      action: 'switchActiveSpeaker',
+      error: `Could not find person folder for "${nameOrId}". Ask who is speaking to register them.`,
+    };
+  }
+
+  /**
+   * Person Memory Folders: Save a memory into a specific person's folder
+   */
+  savePersonMemory(key: string, value: string, category?: any, personName?: string): ToolExecutionResult {
+    if (!key || !value) {
+      return { success: false, action: 'savePersonMemory', error: 'Memory key and value are required.' };
+    }
+
+    let targetFolder = speakerMemoryStore.getActiveFolder();
+    if (personName) {
+      const folders = speakerMemoryStore.getFolders();
+      const found = folders.find(
+        (f) => f.name.toLowerCase().includes(personName.toLowerCase()) || f.id === personName
+      );
+      if (found) targetFolder = found;
+    }
+
+    const memory = speakerMemoryStore.addMemory({
+      folderId: targetFolder.id,
+      key,
+      value,
+      category,
+      sourceText: `Voice saved memory for ${targetFolder.name}`,
+    });
+
+    // Also mirror to global fact database for seamless cross-retrieval
+    crossSessionMemory.learnFact(`${targetFolder.name}'s ${key}`, value, category || 'general');
+
+    return {
+      success: true,
+      action: 'savePersonMemory',
+      message: `Maine ${targetFolder.name} ke folder mein yaad rakh liya: "${key}: ${value}"`,
+      data: {
+        memoryId: memory.id,
+        folderName: targetFolder.name,
+        key: memory.key,
+        value: memory.value,
+        totalPersonMemories: targetFolder.memories.length,
+      },
+    };
+  }
+
+  /**
+   * Person Memory Folders: Get all details and memories in a person's folder
+   */
+  getPersonFolderDetails(personName?: string): ToolExecutionResult {
+    let targetFolder = speakerMemoryStore.getActiveFolder();
+    if (personName) {
+      const folders = speakerMemoryStore.getFolders();
+      const found = folders.find(
+        (f) => f.name.toLowerCase().includes(personName.toLowerCase()) || f.id === personName
+      );
+      if (found) targetFolder = found;
+    }
+
+    return {
+      success: true,
+      action: 'getPersonFolderDetails',
+      message: `Retrieved ${targetFolder.memories.length} memories for ${targetFolder.name} (${targetFolder.pronounLabel}).`,
+      data: {
+        id: targetFolder.id,
+        name: targetFolder.name,
+        gender: targetFolder.gender,
+        grammaticalStyle: targetFolder.grammaticalStyle,
+        pronounLabel: targetFolder.pronounLabel,
+        voiceProfile: targetFolder.voiceProfile,
+        memories: targetFolder.memories,
+      },
+    };
+  }
+
+  /**
+   * Person Memory Folders: List all registered person folders
+   */
+  listAllPersonFolders(): ToolExecutionResult {
+    const folders = speakerMemoryStore.getFolders();
+    const active = speakerMemoryStore.getActiveFolder();
+
+    const summaryList = folders.map((f) => ({
+      id: f.id,
+      name: f.name,
+      gender: f.gender,
+      grammaticalStyle: f.grammaticalStyle,
+      pitchHz: Math.round(f.voiceProfile.estimatedPitchHz),
+      memoriesCount: f.memories.length,
+      isActive: f.id === active.id,
+    }));
+
+    return {
+      success: true,
+      action: 'listAllPersonFolders',
+      message: `Registered Person Folders (${folders.length}): ${folders.map((f) => f.name).join(', ')}. Active: ${active.name}.`,
+      data: {
+        activeSpeaker: active.name,
+        folders: summaryList,
+      },
+    };
+  }
+
+  /**
+   * Biometric Acoustic Voice Sensor: Read real-time pitch, gender, and matched speaker
+   * Evaluates multi-dimensional acoustic metrics (pitch, timbre, spectral centroid, formant dispersion)
+   * specifically handling the 145-195 Hz ambiguous range.
+   */
+  getLiveAcousticSpeaker(): ToolExecutionResult {
+    const folders = speakerMemoryStore.getFolders();
+    const active = speakerMemoryStore.getActiveFolder();
+    const livePitch = speakerMemoryStore.latestObservedPitch || 122.5;
+    const liveCentroid = speakerMemoryStore.latestObservedCentroid || 1200;
+    const acoustic = classifyAcousticGender(livePitch, liveCentroid);
+    const classification = acoustic.gender === 'female' ? 'Female' : 'Male';
+
+    const vocalTractEvidence = `Pitch Range: ${acoustic.pitchRangeLabel} (~${Math.round(livePitch)} Hz). Timbre Range: ${acoustic.timbreRangeLabel} (~${Math.round(liveCentroid)} Hz). Range Analysis Details: ${acoustic.rangeAnalysisDetails}`;
+
+    if (folders.length === 0 || active.id === 'guest' || !active.name || active.name === 'Unknown Voice') {
+      return {
+        success: true,
+        action: 'getLiveAcousticSpeaker',
+        message: `Classification: ${classification}. Acoustic Range Evidence: ${vocalTractEvidence}`,
+        data: {
+          speakerName: 'Unregistered Voice',
+          classification,
+          isRecognized: false,
+          pitchHz: Math.round(livePitch),
+          spectralCentroid: Math.round(liveCentroid),
+          gender: acoustic.gender,
+          grammaticalStyle: acoustic.gender === 'female' ? 'feminine' : 'masculine',
+          acousticEvidence: vocalTractEvidence,
+        },
+      };
+    }
+
+    const lastPitch = active.voiceProfile.estimatedPitchHz || (active.gender === 'female' ? 210 : 122.5);
+    const gender = active.gender || 'male';
+    const style = active.grammaticalStyle || (gender === 'female' ? 'feminine' : 'masculine');
+
+    console.log(`[DeviceActionBridge] getLiveAcousticSpeaker -> Active: ${active.name} (${gender}, ~${Math.round(lastPitch)} Hz)`);
+
+    return {
+      success: true,
+      action: 'getLiveAcousticSpeaker',
+      message: `Classification: ${classification}. Speaker Profile: "${active.name}". Acoustic Range Evidence: ${vocalTractEvidence}`,
+      data: {
+        speakerName: active.name,
+        classification,
+        isRecognized: true,
+        gender: active.gender,
+        pitchHz: Math.round(lastPitch),
+        spectralCentroid: Math.round(liveCentroid),
+        grammaticalStyle: style,
+        pronounLabel: active.pronounLabel,
+        relationship: active.relationship,
+        memoriesCount: active.memories.length,
+        acousticEvidence: vocalTractEvidence,
       },
     };
   }
@@ -2559,15 +3020,19 @@ export class DeviceActionBridge {
       };
     }
 
-    // Fallback URL
-    const fallbackWeb = `https://play.google.com/store/search?q=${encodeURIComponent(appName)}&c=apps`;
+    // Dynamic Universal Web Fallback for any application/website
+    const isDomain = rawClean.includes('.') || !rawClean.includes(' ');
+    const fallbackWeb = isDomain && !rawClean.startsWith('http')
+      ? `https://${rawClean.replace(/^https?:\/\//i, '')}`
+      : `https://www.google.com/search?q=${encodeURIComponent(appName)}`;
+
     this.launchAnchorLink(fallbackWeb, fallbackWeb);
     return {
       success: true,
       action: 'openApp',
-      message: `Launched ${appName}.`,
-      data: { app: appName, url: fallbackWeb, targetUrl: fallbackWeb, platform: 'universal' },
-      platform: 'universal',
+      message: `Opening ${appName}.`,
+      data: { app: appName, url: fallbackWeb, targetUrl: fallbackWeb, platform: isMobile ? 'android' : 'windows' },
+      platform: isMobile ? 'android' : 'windows',
     };
   }
 

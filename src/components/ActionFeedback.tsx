@@ -181,12 +181,12 @@ export const ActionFeedback: React.FC<ActionFeedbackProps> = ({ lastAction, onCl
   };
 
   return (
-    <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 w-11/12 max-w-lg animate-in fade-in slide-in-from-top-4 duration-300">
+    <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 w-11/12 max-w-lg animate-motion-blur-in">
       <div
-        className={`p-4 rounded-2xl border shadow-2xl backdrop-blur-xl transition-all ${
+        className={`p-4 rounded-2xl border shadow-2xl backdrop-blur-2xl transition-all duration-300 will-change-transform ${
           result.success
-            ? 'bg-slate-900/95 border-cyan-500/60 shadow-[0_0_35px_rgba(6,182,212,0.25)] text-slate-100'
-            : 'bg-slate-900/95 border-amber-500/60 shadow-[0_0_35px_rgba(245,158,11,0.25)] text-slate-100'
+            ? 'bg-slate-900/95 border-cyan-500/60 shadow-[0_0_35px_rgba(6,182,212,0.3)] text-slate-100'
+            : 'bg-slate-900/95 border-amber-500/60 shadow-[0_0_35px_rgba(245,158,11,0.3)] text-slate-100'
         }`}
       >
         {/* Top Header */}

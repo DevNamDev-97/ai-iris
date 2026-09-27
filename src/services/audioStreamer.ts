@@ -2,12 +2,15 @@
  * AudioStreamer
  * Captures microphone audio across desktop and smartphones (iOS Safari, Android Chrome),
  * resamples natively from any device sample rate (44.1kHz / 48kHz) to clean 16kHz 16-bit PCM Little Endian,
- * encodes to Base64, and streams to Gemini Live.
+ * encodes to Base64, performs real-time acoustic pitch & voice analysis, and streams to Gemini Live.
  */
+
+import { analyzeAudioPitchAndAcoustics } from '../utils/voiceRecognition.ts';
 
 export interface AudioStreamerListeners {
   onAudioChunk: (base64Pcm: string) => void;
   onAudioLevel?: (level: number) => void;
+  onAcousticData?: (data: { pitchHz: number; smoothedPitchHz: number; rms: number; spectralCentroid: number; spectralRatio?: number; confidence: number }) => void;
   onError?: (err: Error) => void;
 }
 
@@ -21,6 +24,7 @@ export class AudioStreamer {
   private isStreaming = false;
   private listeners: AudioStreamerListeners;
   private animationFrameId: number | null = null;
+  private lastPitchAnalysisTime = 0;
 
   constructor(listeners: AudioStreamerListeners) {
     this.listeners = listeners;
@@ -34,7 +38,11 @@ export class AudioStreamer {
 
     console.log('🎤 [AudioStreamer] Requesting microphone access for smartphone/desktop...');
     try {
-      // Clean cross-platform audio constraints (avoid fixed sampleRate which breaks mobile OS)
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error('Microphone audio capture is not supported in this browser environment.');
+      }
+
+      // Clean cross-platform audio constraints
       this.mediaStream = await navigator.mediaDevices.getUserMedia({
         audio: {
           channelCount: 1,
@@ -45,17 +53,23 @@ export class AudioStreamer {
       });
       console.log('🎤 [AudioStreamer] Microphone permission granted!');
     } catch (err: any) {
-      console.error('❌ [AudioStreamer] Microphone permission denied or unavailable:', err);
-      const error = new Error(`Microphone access denied: ${err?.message || err}`);
+      console.warn('⚠️ [AudioStreamer] Microphone permission denied or unavailable:', err?.message || err);
+      const isPermissionDenied =
+        err?.name === 'NotAllowedError' ||
+        err?.name === 'PermissionDeniedError' ||
+        String(err?.message || '').includes('denied');
+      const errorMsg = isPermissionDenied
+        ? 'Microphone permission was not granted. Please allow microphone access in your browser address bar or use the Chat Panel.'
+        : `Microphone unavailable: ${err?.message || 'Check audio device'}`;
+      const error = new Error(errorMsg);
       this.listeners.onError?.(error);
       throw error;
     }
 
     try {
       const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
-      // Allow browser to create AudioContext at device native hardware rate
       this.inputAudioCtx = new AudioCtxClass();
-      
+
       if (this.inputAudioCtx.state === 'suspended') {
         await this.inputAudioCtx.resume();
       }
@@ -65,17 +79,17 @@ export class AudioStreamer {
 
       this.sourceNode = this.inputAudioCtx.createMediaStreamSource(this.mediaStream);
 
-      // Acoustic high-pass filter at 75Hz removes breath noise and phone mic wind
+      // Acoustic high-pass filter at 75Hz
       this.filterNode = this.inputAudioCtx.createBiquadFilter();
       this.filterNode.type = 'highpass';
       this.filterNode.frequency.value = 75;
 
-      // AnalyserNode to measure speech volume for the visualizer
+      // AnalyserNode to measure speech volume
       this.analyserNode = this.inputAudioCtx.createAnalyser();
       this.analyserNode.fftSize = 256;
       this.analyserNode.smoothingTimeConstant = 0.4;
 
-      // ScriptProcessor with buffer size 4096 (works reliably across desktop and mobile)
+      // ScriptProcessor with buffer size 4096
       this.processorNode = this.inputAudioCtx.createScriptProcessor(4096, 1, 1);
 
       this.processorNode.onaudioprocess = (e: AudioProcessingEvent) => {
@@ -84,10 +98,20 @@ export class AudioStreamer {
         const inputData = e.inputBuffer.getChannelData(0);
         if (!inputData || inputData.length === 0) return;
 
-        // 1. Resample from native hardware rate (e.g. 48000Hz or 44100Hz) to 16000Hz
+        // 1. Resample from native hardware rate to clean 16000Hz PCM
         const resampled16k = this.downsampleTo16000(inputData, nativeSampleRate);
 
-        // 2. Convert to 16-bit PCM Little Endian Base64
+        // 2. Real-time Acoustic Pitch & Voice Analysis on clean 16kHz audio (every ~180ms)
+        const now = performance.now();
+        if (now - this.lastPitchAnalysisTime > 180) {
+          this.lastPitchAnalysisTime = now;
+          const analysis = analyzeAudioPitchAndAcoustics(resampled16k, 16000);
+          if (analysis && this.listeners.onAcousticData) {
+            this.listeners.onAcousticData(analysis);
+          }
+        }
+
+        // 3. Convert to 16-bit PCM Little Endian Base64 for Gemini Live
         const pcmBase64 = this.convertFloat32ToInt16Base64(resampled16k);
 
         if (pcmBase64) {
@@ -95,9 +119,6 @@ export class AudioStreamer {
         }
       };
 
-      // Correct audio graph wiring:
-      // Source -> HighPassFilter -> Analyser
-      //                          -> ScriptProcessor -> Destination
       this.sourceNode.connect(this.filterNode);
       this.filterNode.connect(this.analyserNode);
       this.filterNode.connect(this.processorNode);
@@ -115,7 +136,7 @@ export class AudioStreamer {
   }
 
   /**
-   * Resamples raw audio from device sample rate to 16000 Hz using box-car averaging.
+   * Resamples raw audio from device sample rate to 16000 Hz.
    */
   private downsampleTo16000(input: Float32Array, inputRate: number): Float32Array {
     if (inputRate === 16000) {
@@ -143,19 +164,17 @@ export class AudioStreamer {
   }
 
   /**
-   * Converts Float32Array to 16-bit PCM Little Endian and encodes to Base64
+   * Converts Float32Array to 16-bit PCM Little Endian Base64
    */
   private convertFloat32ToInt16Base64(float32Array: Float32Array): string {
     const l = float32Array.length;
     const int16 = new Int16Array(l);
 
     for (let i = 0; i < l; i++) {
-      // Clamp sample between -1 and 1
       const s = Math.max(-1, Math.min(1, float32Array[i]));
       int16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
     }
 
-    // Convert Int16 buffer to binary string
     const bytes = new Uint8Array(int16.buffer);
     let binary = '';
     const len = bytes.byteLength;

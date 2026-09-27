@@ -10,6 +10,8 @@ import { AudioPlaybackQueue } from './audioPlaybackQueue.ts';
 import { DeviceActionBridge, ToolExecutionResult } from './deviceActionBridge.ts';
 import { toEnglishAlphabets } from '../utils/transliteration.ts';
 import { screenShareService } from './screenShareService.ts';
+import { speakerMemoryStore } from './speakerMemoryStore.ts';
+import { matchSpeakerAcoustic } from '../utils/voiceRecognition.ts';
 
 export type AssistantState = 'IDLE' | 'CONNECTING' | 'LISTENING' | 'SPEAKING' | 'ERROR';
 
@@ -22,6 +24,7 @@ export interface LiveClientCallbacks {
   onRequestFileUpload?: (data: { fileType: string; message: string }) => void;
   onShowGeneratedContent?: (data: { title: string; contentType: 'code' | 'prompt' | 'text' | 'link'; language?: string; content: string; url?: string; summary?: string }) => void;
   onInterruption?: () => void;
+  onAcousticPitch?: (data: { pitchHz: number; spectralCentroid?: number; detectedGender?: 'male' | 'female' | 'ambiguous'; speakerName: string; confidence: number }) => void;
   onError: (errorMsg: string) => void;
 }
 
@@ -35,6 +38,8 @@ export class LiveClient {
   private isSpeaking = false;
   private lastUserSpeechTimestamp = 0;
   private turnPendingCompletion = false;
+  private lastAcousticSendTime = 0;
+  private lastSentSpeakerName = '';
 
   constructor(callbacks: LiveClientCallbacks) {
     this.callbacks = callbacks;
@@ -98,7 +103,7 @@ export class LiveClient {
     }
 
     this.setState('CONNECTING');
-    console.log(`🚀 [LiveClient] Starting Iris real-time voice session with voice: ${voiceName || 'Kore'}...`);
+    console.log(`🚀 [LiveClient] Starting Iris real-time voice session with voice: ${voiceName || 'Leda'}...`);
 
     try {
       // 1. Mobile AudioContext guarantee: MUST be resumed from user gesture!
@@ -108,12 +113,16 @@ export class LiveClient {
       // 2. Connect to server-side Gemini Live via WebSocket with voice & dynamic device location context
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const locInfo = this.deviceBridge.getLocationInfo();
+      const activeFolder = speakerMemoryStore.getActiveFolder();
       const params = new URLSearchParams();
-      if (voiceName) params.set('voice', voiceName);
+      params.set('voice', voiceName || 'Leda');
       if (locInfo.timezone) params.set('tz', locInfo.timezone);
       if (locInfo.city) params.set('city', locInfo.city);
       if (locInfo.formattedTime) params.set('time', locInfo.formattedTime);
       if (locInfo.formattedDate) params.set('date', locInfo.formattedDate);
+      if (activeFolder?.name) params.set('speaker', activeFolder.name);
+      if (activeFolder?.gender) params.set('speakerGender', activeFolder.gender);
+      if (activeFolder?.grammaticalStyle) params.set('speakerGrammar', activeFolder.grammaticalStyle);
 
       const wsUrl = `${protocol}//${window.location.host}/api/live?${params.toString()}`;
       console.log(`🔌 [LiveClient] Connecting to WebSocket: ${wsUrl}`);
@@ -121,8 +130,21 @@ export class LiveClient {
       this.ws = new WebSocket(wsUrl);
 
       this.ws.onopen = async () => {
-        console.log('⚡ [LiveClient] WebSocket connection established with Iris backend');
-        this.setState('LISTENING');
+        console.log('⚡ [LiveClient] WebSocket connection established with Iris backend. Awaiting session_ready...');
+        // Transmit full registered speaker profiles and initial active folder
+        try {
+          const allFolders = speakerMemoryStore.getFolders();
+          const activeSpk = speakerMemoryStore.getActiveFolder();
+          this.ws?.send(
+            JSON.stringify({
+              type: 'speaker_init',
+              activeSpeaker: activeSpk,
+              registeredSpeakers: allFolders,
+            })
+          );
+        } catch (e) {
+          console.warn('Error sending initial speaker config:', e);
+        }
       };
 
       this.ws.onmessage = async (event) => {
@@ -142,10 +164,11 @@ export class LiveClient {
 
       this.ws.onclose = (event) => {
         console.log(`🔒 [LiveClient] WebSocket closed (${event.code}, reason: ${event.reason})`);
-        if (this.state !== 'IDLE' && this.state !== 'ERROR') {
+        const isErrorState = this.state === 'ERROR';
+        if (!isErrorState) {
           this.setState('IDLE');
         }
-        this.stop();
+        this.stop(isErrorState);
       };
 
       // 3. Initialize Microphone Streamer
@@ -165,6 +188,50 @@ export class LiveClient {
           onAudioLevel: (level) => {
             if (!this.isSpeaking) {
               this.callbacks.onAudioLevel(level);
+            }
+          },
+          onAcousticData: (data) => {
+            const effectivePitch = data.smoothedPitchHz || data.pitchHz;
+            if (effectivePitch > 65 && data.confidence > 0.35) {
+              const speakers = speakerMemoryStore.getRegisteredSpeakers();
+              const match = matchSpeakerAcoustic(effectivePitch, data.spectralCentroid, speakers, data.spectralRatio || 1.3);
+
+              speakerMemoryStore.recordLiveAcoustics(effectivePitch, data.spectralCentroid);
+
+              if (match.isRecognized && match.speaker) {
+                speakerMemoryStore.setActiveSpeaker(match.speaker.id);
+                speakerMemoryStore.updateLiveAcoustics(match.speaker.id, effectivePitch, data.spectralCentroid);
+              }
+
+              this.callbacks.onAcousticPitch?.({
+                pitchHz: effectivePitch,
+                spectralCentroid: data.spectralCentroid,
+                detectedGender: match.detectedGender,
+                speakerName: match.speakerName,
+                confidence: match.confidence,
+              });
+
+              // Transmit live acoustic identity to backend if speaker identity changes or every 1.5s
+              const now = Date.now();
+              const speakerChanged = match.speakerName !== this.lastSentSpeakerName;
+              if ((speakerChanged || now - this.lastAcousticSendTime > 1500) && this.ws?.readyState === WebSocket.OPEN) {
+                this.lastAcousticSendTime = now;
+                this.lastSentSpeakerName = match.speakerName;
+                this.ws.send(
+                  JSON.stringify({
+                    type: 'speaker_acoustic_telemetry',
+                    pitchHz: effectivePitch,
+                    spectralCentroid: data.spectralCentroid,
+                    spectralRatio: data.spectralRatio || 1.3,
+                    speakerName: match.speakerName,
+                    isRecognized: match.isRecognized,
+                    gender: match.detectedGender,
+                    grammaticalStyle: match.grammaticalStyle,
+                    confidence: match.confidence,
+                    activeSpeakerFolder: speakerMemoryStore.getActiveFolder(),
+                  })
+                );
+              }
             }
           },
           onError: (err) => {
@@ -250,6 +317,7 @@ export class LiveClient {
 
       case 'error': {
         console.error('❌ [LiveClient] Server reported error:', msg.message);
+        this.setState('ERROR');
         this.callbacks.onError(msg.message);
         break;
       }
@@ -416,9 +484,11 @@ export class LiveClient {
   /**
    * Stop the session and clean up all resources
    */
-  stop(): void {
+  stop(preserveErrorState = false): void {
     console.log('🛑 [LiveClient] Stopping Iris Live session and cleaning resources');
-    this.setState('IDLE');
+    if (!preserveErrorState) {
+      this.setState('IDLE');
+    }
     this.isSpeaking = false;
 
     this.stopScreenShare();

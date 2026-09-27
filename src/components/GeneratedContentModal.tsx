@@ -70,8 +70,8 @@ export const GeneratedContentModal: React.FC<GeneratedContentModalProps> = ({
   const lines = data.content.split('\n');
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/85 backdrop-blur-md animate-in fade-in duration-200">
-      <div className="w-full max-w-3xl max-h-[90vh] bg-slate-900 border border-cyan-500/40 rounded-2xl shadow-[0_0_40px_rgba(6,182,212,0.25)] flex flex-col overflow-hidden relative">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/85 backdrop-blur-md animate-motion-blur-in">
+      <div className="w-full max-w-3xl max-h-[90vh] bg-slate-900 border border-cyan-500/40 rounded-2xl shadow-[0_0_40px_rgba(6,182,212,0.25)] flex flex-col overflow-hidden relative motion-blur-glass">
         {/* Top Glow Accent */}
         <div className="absolute -top-16 -left-16 w-36 h-36 bg-cyan-500/20 rounded-full blur-3xl pointer-events-none" />
 
