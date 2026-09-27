@@ -1,0 +1,6 @@
+{
+  "name": "Iris - Real-Time Voice AI Assistant",
+  "description": "Production-ready real-time voice-to-voice AI assistant Iris powered by Gemini Live with natural multi-language conversation and device actions.",
+  "requestFramePermissions": ["microphone", "geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
