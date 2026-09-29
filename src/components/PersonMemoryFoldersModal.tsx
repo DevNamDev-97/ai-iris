@@ -403,30 +403,45 @@ export const PersonMemoryFoldersModal: React.FC<PersonMemoryFoldersModalProps> =
                   </div>
                 </div>
 
-                {/* Voice Profile Card */}
+                {/* Dynamic Voice Range Profile Card */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs">
                   <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-950/40 border border-slate-200/80 dark:border-slate-800">
-                    <span className="text-[10px] text-slate-400 block">Voice Pitch (F0)</span>
+                    <span className="text-[10px] text-slate-400 block">Dynamic Pitch Range</span>
                     <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
-                      {Math.round(selectedFolder.voiceProfile.estimatedPitchHz)} Hz
+                      {selectedFolder.voiceProfile.pitchRange ? `${selectedFolder.voiceProfile.pitchRange[0]}-${selectedFolder.voiceProfile.pitchRange[1]} Hz` : `${Math.round(selectedFolder.voiceProfile.estimatedPitchHz)} Hz`}
+                    </span>
+                    <span className="text-[9px] text-slate-500 dark:text-slate-400 block mt-0.5">
+                      Inst: ~{selectedFolder.voiceProfile.instantaneousPitchHz || Math.round(selectedFolder.voiceProfile.estimatedPitchHz)} Hz
                     </span>
                   </div>
+
                   <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-950/40 border border-slate-200/80 dark:border-slate-800">
-                    <span className="text-[10px] text-slate-400 block">Acoustic Timbre</span>
-                    <span className="font-mono font-bold capitalize text-slate-800 dark:text-slate-200">
-                      {selectedFolder.voiceProfile.voiceTimbre.replace('_', ' ')}
+                    <span className="text-[10px] text-slate-400 block">Dynamic Timbre Range</span>
+                    <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                      {selectedFolder.voiceProfile.timbreRange ? `${selectedFolder.voiceProfile.timbreRange[0]}-${selectedFolder.voiceProfile.timbreRange[1]} Hz` : `${selectedFolder.voiceProfile.spectralCentroid || 1200} Hz`}
+                    </span>
+                    <span className="text-[9px] text-slate-500 dark:text-slate-400 block mt-0.5 capitalize">
+                      Inst: ~{selectedFolder.voiceProfile.instantaneousTimbreHz || selectedFolder.voiceProfile.spectralCentroid || 1200} Hz ({selectedFolder.voiceProfile.voiceTimbre.replace('_', ' ')})
                     </span>
                   </div>
+
                   <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-950/40 border border-slate-200/80 dark:border-slate-800">
-                    <span className="text-[10px] text-slate-400 block">Match Confidence</span>
+                    <span className="text-[10px] text-slate-400 block">Range Match Confidence</span>
                     <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">
                       {Math.round(selectedFolder.voiceProfile.confidence * 100)}%
                     </span>
+                    <span className="text-[9px] text-slate-500 dark:text-slate-400 block mt-0.5">
+                      Samples: {selectedFolder.voiceProfile.sampleCount}
+                    </span>
                   </div>
+
                   <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-950/40 border border-slate-200/80 dark:border-slate-800">
                     <span className="text-[10px] text-slate-400 block">Learned Memories</span>
                     <span className="font-mono font-bold text-blue-600 dark:text-cyan-400">
                       {selectedFolder.memories.length} Entries
+                    </span>
+                    <span className="text-[9px] text-slate-500 dark:text-slate-400 block mt-0.5">
+                      {selectedFolder.relationship || 'Friend'}
                     </span>
                   </div>
                 </div>

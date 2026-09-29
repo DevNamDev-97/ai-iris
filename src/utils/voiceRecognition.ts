@@ -7,8 +7,13 @@
 
 export interface AcousticVoiceProfile {
   estimatedPitchHz: number; // Fundamental frequency F0
-  pitchRange: [number, number]; // [min, max] observed
+  pitchRange: [number, number]; // [min, max] observed pitch range
   spectralCentroid: number; // Timbre resonance / brightness
+  timbreRange: [number, number]; // [min, max] observed timbre range
+  instantaneousPitchHz?: number; // Live instantaneous pitch value from current audio frame
+  instantaneousTimbreHz?: number; // Live instantaneous spectral centroid value from current audio frame
+  pitchSamples?: number[]; // Rolling instantaneous pitch sample history
+  timbreSamples?: number[]; // Rolling instantaneous timbre sample history
   spectralFlux?: number; // High-frequency energy roll-off / vocal tract length indicator
   voiceTimbre: 'deep_baritone' | 'tenor' | 'alto' | 'soprano' | 'unvoiced_or_noise';
   detectedAcousticGender: 'male' | 'female' | 'ambiguous';

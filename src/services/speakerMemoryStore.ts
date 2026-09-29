@@ -51,13 +51,18 @@ const DEV_FOLDER: PersonMemoryFolder = {
   relationship: 'Creator',
   avatarColor: '#2563eb',
   voiceProfile: {
-    estimatedPitchHz: 122.5,
-    pitchRange: [95, 175],
-    spectralCentroid: 1200,
+    estimatedPitchHz: 142.5,
+    pitchRange: [120, 165],
+    spectralCentroid: 3590,
+    timbreRange: [3400, 3780],
+    instantaneousPitchHz: 142.5,
+    instantaneousTimbreHz: 3590,
+    pitchSamples: [120, 130, 142.5, 150, 160, 165],
+    timbreSamples: [3400, 3500, 3590, 3650, 3700, 3780],
     voiceTimbre: 'tenor',
     detectedAcousticGender: 'male',
     confidence: 0.98,
-    sampleCount: 5,
+    sampleCount: 6,
     lastAnalyzedAt: Date.now(),
   },
   memories: [
@@ -81,11 +86,11 @@ const DEV_FOLDER: PersonMemoryFolder = {
   lastSpokenAt: Date.now(),
 };
 
-const DEFAULT_FOLDERS: PersonMemoryFolder[] = [DEV_FOLDER];
+const DEFAULT_FOLDERS: PersonMemoryFolder[] = [];
 
 class SpeakerMemoryStore {
-  private folders: PersonMemoryFolder[] = [DEV_FOLDER];
-  private activeSpeakerId: string = DEV_FOLDER.id;
+  private folders: PersonMemoryFolder[] = [];
+  private activeSpeakerId: string = '';
   private listeners: Set<() => void> = new Set();
   public latestObservedPitch: number = 0;
   public latestObservedCentroid: number = 0;
@@ -99,22 +104,23 @@ class SpeakerMemoryStore {
       const stored = localStorage.getItem(STORAGE_KEY_PERSON_FOLDERS);
       if (stored) {
         const parsed = JSON.parse(stored);
-        // Retain only Dev and any fresh speaker, or keep only Dev if purging everyone else
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          const hasDev = parsed.some((f: any) => f.name.toLowerCase() === 'dev');
-          this.folders = hasDev ? parsed.filter((f: any) => f.name.toLowerCase() === 'dev') : [DEV_FOLDER];
+        if (Array.isArray(parsed)) {
+          this.folders = parsed;
         } else {
-          this.folders = [DEV_FOLDER];
+          this.folders = [];
         }
       } else {
-        this.folders = [DEV_FOLDER];
+        this.folders = [];
       }
-      this.activeSpeakerId = DEV_FOLDER.id;
+      this.activeSpeakerId = localStorage.getItem(STORAGE_KEY_ACTIVE_SPEAKER_ID) || '';
+      if (this.folders.length > 0 && !this.activeSpeakerId) {
+        this.activeSpeakerId = this.folders[0].id;
+      }
       this.saveToStorage();
     } catch (e) {
       console.warn('Failed to load speaker folders from storage:', e);
-      this.folders = [DEV_FOLDER];
-      this.activeSpeakerId = DEV_FOLDER.id;
+      this.folders = [];
+      this.activeSpeakerId = '';
     }
   }
 
@@ -166,16 +172,17 @@ class SpeakerMemoryStore {
     return [...this.folders];
   }
 
-  // Completely wipe and delete ALL stored voice recognition data and profiles
+  // Purge all voice recognition data including Dev profile
   public purgeAllVoiceData(): void {
     this.folders = [];
-    this.activeSpeakerId = 'guest';
+    this.activeSpeakerId = '';
     this.latestObservedPitch = 0;
     this.latestObservedCentroid = 0;
 
     try {
-      localStorage.removeItem(STORAGE_KEY_PERSON_FOLDERS);
-      localStorage.removeItem(STORAGE_KEY_ACTIVE_SPEAKER_ID);
+      localStorage.setItem(STORAGE_KEY_PERSON_FOLDERS, JSON.stringify([]));
+      localStorage.setItem(STORAGE_KEY_ACTIVE_SPEAKER_ID, '');
+      localStorage.removeItem('iris_person_memory_folders_v4');
       localStorage.removeItem('iris_person_memory_folders_v3');
       localStorage.removeItem('iris_person_memory_folders_v2');
       localStorage.removeItem('iris_person_memory_folders_v1');
@@ -195,7 +202,7 @@ class SpeakerMemoryStore {
     }
 
     this.notify();
-    console.log('[SpeakerMemoryStore] All voice recognition data and speaker profiles deleted.');
+    console.log('[SpeakerMemoryStore] Wiped all speaker profiles and voice memory.');
   }
 
   public resetToDefaults(): void {
@@ -240,6 +247,11 @@ class SpeakerMemoryStore {
         estimatedPitchHz: this.latestObservedPitch || 0,
         pitchRange: [0, 0],
         spectralCentroid: this.latestObservedCentroid || 0,
+        timbreRange: [0, 0],
+        instantaneousPitchHz: 0,
+        instantaneousTimbreHz: 0,
+        pitchSamples: [],
+        timbreSamples: [],
         voiceTimbre: 'unvoiced_or_noise',
         detectedAcousticGender: 'ambiguous',
         confidence: 0,
@@ -430,8 +442,13 @@ class SpeakerMemoryStore {
       avatarColor,
       voiceProfile: {
         estimatedPitchHz: Math.round(pitch * 10) / 10,
-        pitchRange: [Math.round(pitch * 0.85), Math.round(pitch * 1.15)],
+        pitchRange: [Math.round(pitch * 0.88), Math.round(pitch * 1.12)],
         spectralCentroid: Math.round(centroid),
+        timbreRange: [Math.round(centroid * 0.85), Math.round(centroid * 1.15)],
+        instantaneousPitchHz: Math.round(pitch * 10) / 10,
+        instantaneousTimbreHz: Math.round(centroid),
+        pitchSamples: [Math.round(pitch * 0.9), Math.round(pitch), Math.round(pitch * 1.1)],
+        timbreSamples: [Math.round(centroid * 0.9), Math.round(centroid), Math.round(centroid * 1.1)],
         voiceTimbre: classified.timbre,
         detectedAcousticGender: classified.gender,
         confidence: classified.confidence,

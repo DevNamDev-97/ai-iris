@@ -26,6 +26,7 @@ interface PlatformDockProps {
   onExecuteApp: (appName: string, query?: string) => void;
   currentPlatform: 'auto' | 'windows' | 'android';
   onSelectPlatform: (platform: 'auto' | 'windows' | 'android') => void;
+  onOpenChat?: () => void;
 }
 
 export const PlatformDock: React.FC<PlatformDockProps> = ({
@@ -33,6 +34,7 @@ export const PlatformDock: React.FC<PlatformDockProps> = ({
   onExecuteApp,
   currentPlatform,
   onSelectPlatform,
+  onOpenChat,
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const isWindowsActive = deviceBridge.isWindows();
@@ -149,6 +151,18 @@ export const PlatformDock: React.FC<PlatformDockProps> = ({
                 <ChevronDown className="w-4 h-4 text-blue-600" />
               </div>
             </button>
+
+            {/* Icon-Only Chat Panel trigger beside the dock */}
+            {onOpenChat && (
+              <button
+                type="button"
+                onClick={() => { triggerHaptic('medium'); onOpenChat(); }}
+                className="p-1.5 rounded-xl border border-blue-500/30 bg-blue-500/10 hover:bg-blue-500/20 text-blue-600 hover:text-blue-700 transition-all spring-button flex items-center justify-center shadow-xs"
+                title="Open Multimodal Chat Panel"
+              >
+                <MessageSquare className="w-4 h-4" />
+              </button>
+            )}
           </div>
         </div>
 

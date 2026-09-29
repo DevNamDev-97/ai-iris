@@ -23,6 +23,7 @@ import { MarkdownRenderer } from './MarkdownRenderer.tsx';
 import { FuturisticScrollTrack } from './FuturisticScrollTrack.tsx';
 import { locationService } from '../services/locationService.ts';
 import { crossSessionMemory } from '../services/crossSessionMemory.ts';
+import { speakerMemoryStore } from '../services/speakerMemoryStore.ts';
 import { toEnglishAlphabets } from '../utils/transliteration.ts';
 
 export interface AttachedFile {
@@ -58,8 +59,24 @@ const QUICK_PROMPTS = [
   'Search for PDF 1 in memory',
   'Set a reminder to drink water in 30 minutes',
   'Where am I and show live map',
+  'Open AI Image Modification Lab',
   'Write a Python script to parse JSON',
 ];
+
+const WELCOME_MESSAGES = [
+  (name: string) => `Haan bol na ${name}! Main sun rahi hoon. Aaj teri kya help karu? Kuch files analyze karwani hain ya code check karna hai?`,
+  (name: string) => `Oye ${name} yaar! Bol na, kya chal raha hai? Koi photo inspect karwani hai ya screen share start karein?`,
+  (name: string) => `Arey ${name}! Aaja, bta kya help chahiye aaj teri personal assistant Iris ko? Mujhse kuch bhi pooch le!`,
+  (name: string) => `Haan ${name} yaar! Bilkul sun rahi hoon. Bata aaj kya interesting cheez discuss karni hai hume?`,
+  (name: string) => `Hey ${name}! Mast dosti wali vibes ke sath hazir hoon! Chal bata, aaj tera kya plan hai aur main kaise help karu?`,
+];
+
+const getRandomWelcomeMessage = () => {
+  const activeFolder = speakerMemoryStore.getActiveFolder();
+  const userName = activeFolder?.name || 'yaar';
+  const randomIndex = Math.floor(Math.random() * WELCOME_MESSAGES.length);
+  return WELCOME_MESSAGES[randomIndex](userName);
+};
 
 export const ChatPanel: React.FC<ChatPanelProps> = ({
   isOpen,
@@ -74,7 +91,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
     {
       id: 'welcome-1',
       role: 'iris',
-      text: 'Haan bol na yaar! Main sun rahi hoon. Tu mujhse kuch bhi pooch sakta hai, photos, code, ya files attach karke inspect karwa sakta hai!',
+      text: getRandomWelcomeMessage(),
       timestamp: Date.now(),
     },
   ]);
@@ -89,8 +106,24 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
-    if (isOpen && textareaRef.current) {
-      setTimeout(() => textareaRef.current?.focus(), 150);
+    if (isOpen) {
+      if (textareaRef.current) {
+        setTimeout(() => textareaRef.current?.focus(), 150);
+      }
+      // Regenerate dynamic greeting with active speaker name on refresh
+      setMessages((prev) => {
+        if (prev.length <= 1) {
+          return [
+            {
+              id: `welcome_${Date.now()}`,
+              role: 'iris',
+              text: getRandomWelcomeMessage(),
+              timestamp: Date.now(),
+            }
+          ];
+        }
+        return prev;
+      });
     }
   }, [isOpen]);
 
@@ -135,6 +168,12 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
   const handleSendMessage = async (textToSend?: string) => {
     const text = (textToSend !== undefined ? textToSend : inputText).trim();
     if (!text && attachedFiles.length === 0) return;
+
+    if (text.toLowerCase() === 'open ai image modification lab') {
+      deviceBridge.modifyImage('Open Lab', 'general');
+      setInputText('');
+      return;
+    }
 
     const currentFiles = [...attachedFiles];
     const userMsgId = `user_${Date.now()}`;
@@ -294,6 +333,22 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
             : 'bg-white/40 border border-white/80 shadow-[0_20px_60px_rgba(14,165,233,0.22)] ring-1 ring-white/70 text-slate-900'
         }`}
       >
+        {/* Floating Center-Top Close Button */}
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-30">
+          <button
+            onClick={onClose}
+            title="Close Chat Panel"
+            className={`px-4 py-1.5 rounded-full border transition-all spring-button flex items-center gap-1.5 font-bold text-xs shadow-lg cursor-pointer ${
+              isDark
+                ? 'text-cyan-400 border-cyan-500/45 hover:text-white hover:bg-slate-800 bg-slate-900/90 shadow-cyan-500/15'
+                : 'text-blue-600 border-blue-200 hover:text-blue-800 hover:bg-slate-100 bg-white shadow-blue-500/10'
+            }`}
+          >
+            <span>Close Chat</span>
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+
         {/* Glossy Top Specular Highlight */}
         <div className={`absolute top-0 inset-x-0 h-16 pointer-events-none z-10 ${
           isDark ? 'bg-gradient-to-b from-cyan-500/15 to-transparent' : 'bg-gradient-to-b from-white/70 to-transparent'
@@ -304,8 +359,8 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
           isDark ? 'bg-cyan-500/20' : 'bg-cyan-400/20'
         }`} />
 
-        {/* Header Bar */}
-        <div className={`px-4 py-3.5 backdrop-blur-md flex items-center justify-between z-20 shrink-0 border-b ${
+        {/* Header Bar with increased top padding to accommodate the centered Close pill */}
+        <div className={`px-4 pt-11 pb-3.5 backdrop-blur-md flex items-center justify-between z-20 shrink-0 border-b ${
           isDark ? 'bg-slate-950/70 border-cyan-500/25' : 'bg-white/50 border-slate-200/60'
         }`}>
           <div className="flex items-center gap-3">
@@ -331,7 +386,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-2">
             <button
               onClick={() => setMessages([])}
               title="Clear chat history"
@@ -340,15 +395,6 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
               }`}
             >
               <Trash2 className="w-4 h-4" />
-            </button>
-            <button
-              onClick={onClose}
-              title="Close Chat Panel"
-              className={`p-2 rounded-xl transition-colors spring-button ${
-                isDark ? 'text-slate-400 hover:text-white hover:bg-slate-800/80' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-200/60'
-              }`}
-            >
-              <X className="w-5 h-5" />
             </button>
           </div>
         </div>

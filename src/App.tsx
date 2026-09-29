@@ -16,6 +16,10 @@ import {
   Tv,
   Sun,
   Moon,
+  ChevronDown,
+  ChevronUp,
+  Terminal,
+  History,
 } from 'lucide-react';
 import { screenShareService } from './services/screenShareService.ts';
 import { LiveClient, AssistantState } from './services/liveClient.ts';
@@ -43,6 +47,7 @@ import { LocationPermissionModal } from './components/LocationPermissionModal.ts
 import { ScreenAnnotationOverlay } from './components/ScreenAnnotationOverlay.tsx';
 import { CameraCaptureModal } from './components/CameraCaptureModal.tsx';
 import { PersonMemoryFoldersModal } from './components/PersonMemoryFoldersModal.tsx';
+import { ImageEditorModal } from './components/ImageEditorModal.tsx';
 import { locationService } from './services/locationService.ts';
 import { toEnglishAlphabets } from './utils/transliteration.ts';
 import { crossSessionMemory } from './services/crossSessionMemory.ts';
@@ -75,6 +80,19 @@ export default function App() {
   });
   const [unreadNotifCount, setUnreadNotifCount] = useState<number>(0);
 
+  const [isContactsOpen, setIsContactsOpen] = useState(false);
+  const [contacts, setContacts] = useState<Contact[]>([]);
+  const [isNativeMode, setIsNativeMode] = useState(false);
+  const [isMapOpen, setIsMapOpen] = useState(false);
+  const [mapModalProps, setMapModalProps] = useState<{
+    query?: string;
+    category?: string;
+    center?: { lat: number; lng: number };
+    zoom?: number;
+  }>({});
+  const [quotaExceeded, setQuotaExceeded] = useState(false);
+  const [isLocationPermissionOpen, setIsLocationPermissionOpen] = useState(false);
+
   const [platformMode, setPlatformMode] = useState<'auto' | 'windows' | 'android'>(() => {
     return (localStorage.getItem('iris_platform_mode') as any) || 'auto';
   });
@@ -89,24 +107,199 @@ export default function App() {
   const [voiceUploadPrompt, setVoiceUploadPrompt] = useState<string>('');
   const [isGeneratedContentOpen, setIsGeneratedContentOpen] = useState<boolean>(false);
   const [generatedContentData, setGeneratedContentData] = useState<GeneratedContentData | null>(null);
+  
+  // Image Editor / Modification Lab states
+  const [isImageEditorOpen, setIsImageEditorOpen] = useState<boolean>(false);
+  const [imageEditorInstruction, setImageEditorInstruction] = useState<string>('');
+  const [imageEditorAction, setImageEditorAction] = useState<string>('general');
+
+  // Telemetry Dock states
+  const [isTelemetryDockExpanded, setIsTelemetryDockExpanded] = useState<boolean>(false);
+  
+  // Real-time custom top overscroll engine for fluid cinematic drawers with 90-120fps continuous physics
+  const [overscrollY, setOverscrollY] = useState<number>(0);
+  const [targetOverscrollY, setTargetOverscrollY] = useState<number>(0);
+  const [isDragging, setIsDragging] = useState<boolean>(false);
+  const dragStartY = useRef<number>(0);
+  const wheelTimeoutRef = useRef<number | null>(null);
+  const currentOverscrollYRef = useRef<number>(0);
+
+  // Sync current value in mutable ref to avoid dependency updates in the main physics loop
+  useEffect(() => {
+    currentOverscrollYRef.current = overscrollY;
+  }, [overscrollY]);
+
+  // Buttery-smooth requestAnimationFrame continuous physics loop (90-120fps standard)
+  useEffect(() => {
+    if (isDragging) return; // Pause physics loop while dragging to let finger drag directly
+
+    let animationFrameId: number;
+    const tick = () => {
+      setOverscrollY((current) => {
+        const diff = targetOverscrollY - current;
+        if (Math.abs(diff) < 0.05) {
+          return targetOverscrollY;
+        }
+        // Only schedule next frame if still actively moving to avoid endless loop
+        animationFrameId = requestAnimationFrame(tick);
+        return current + diff * 0.28;
+      });
+    };
+    
+    // Always initiate the loop if target and current are different
+    if (Math.abs(currentOverscrollYRef.current - targetOverscrollY) > 0.05) {
+      animationFrameId = requestAnimationFrame(tick);
+    }
+    
+    return () => {
+      if (animationFrameId) cancelAnimationFrame(animationFrameId);
+    };
+  }, [targetOverscrollY, isDragging]);
+
+  useEffect(() => {
+    const handleWheel = (e: WheelEvent) => {
+      // Ignore overscroll actions if modal dialogs are open
+      if (
+        isChatOpen ||
+        isPersonFoldersOpen ||
+        isMapOpen ||
+        isCalendarOpen ||
+        isRemindersOpen ||
+        isNotesOpen ||
+        isNotificationsOpen ||
+        isContactsOpen ||
+        isImageEditorOpen ||
+        isSettingsOpen ||
+        isGeneratedContentOpen
+      ) {
+        return;
+      }
+
+      setTargetOverscrollY((prev) => {
+        // Pull down is scroll up (e.deltaY < 0)
+        let next = prev - e.deltaY * 1.6;
+        next = Math.max(0, Math.min(next, 540));
+        return next;
+      });
+
+      // Stop scrolling detection to auto-complete animation smoothly to either fully opened or fully closed state
+      if (wheelTimeoutRef.current) clearTimeout(wheelTimeoutRef.current);
+      wheelTimeoutRef.current = setTimeout(() => {
+        setTargetOverscrollY((current) => {
+          if (current > 140) {
+            return 540; // fully open
+          } else {
+            return 0; // fully closed
+          }
+        });
+      }, 150) as unknown as number;
+    };
+
+    window.addEventListener('wheel', handleWheel, { passive: false });
+    return () => {
+      window.removeEventListener('wheel', handleWheel);
+      if (wheelTimeoutRef.current) clearTimeout(wheelTimeoutRef.current);
+    };
+  }, [
+    isChatOpen,
+    isPersonFoldersOpen,
+    isMapOpen,
+    isCalendarOpen,
+    isRemindersOpen,
+    isNotesOpen,
+    isNotificationsOpen,
+    isContactsOpen,
+    isImageEditorOpen,
+    isSettingsOpen,
+    isGeneratedContentOpen,
+  ]);
+
+  useEffect(() => {
+    const handleTouchStart = (e: TouchEvent) => {
+      if (
+        isChatOpen ||
+        isPersonFoldersOpen ||
+        isMapOpen ||
+        isCalendarOpen ||
+        isRemindersOpen ||
+        isNotesOpen ||
+        isNotificationsOpen ||
+        isContactsOpen ||
+        isImageEditorOpen ||
+        isSettingsOpen ||
+        isGeneratedContentOpen
+      ) {
+        return;
+      }
+
+      // Do not hijack dragging if the user is touching inside scrollable logs, buttons, or interactive inputs
+      const target = e.target as HTMLElement;
+      if (target.closest('.overflow-y-auto') || target.closest('button') || target.closest('textarea') || target.closest('input')) {
+        return;
+      }
+
+      dragStartY.current = e.touches[0].clientY;
+      setIsDragging(true);
+    };
+
+    const handleTouchMove = (e: TouchEvent) => {
+      if (!isDragging) return;
+      const currentY = e.touches[0].clientY;
+      const deltaY = currentY - dragStartY.current;
+
+      setTargetOverscrollY((prev) => {
+        let next = prev + deltaY * 1.6;
+        next = Math.max(0, Math.min(next, 540));
+        // Direct state synchronization for zero lag tracking on mobile!
+        setOverscrollY(next);
+        return next;
+      });
+      dragStartY.current = currentY;
+
+      if (e.cancelable) e.preventDefault();
+    };
+
+    const handleTouchEnd = () => {
+      setIsDragging(false);
+      setTargetOverscrollY((prev) => {
+        if (prev > 140) {
+          return 540; // smoothly complete to open
+        } else {
+          return 0; // smoothly complete to closed
+        }
+      });
+    };
+
+    window.addEventListener('touchstart', handleTouchStart, { passive: true });
+    window.addEventListener('touchmove', handleTouchMove, { passive: false });
+    window.addEventListener('touchend', handleTouchEnd);
+
+    return () => {
+      window.removeEventListener('touchstart', handleTouchStart);
+      window.removeEventListener('touchmove', handleTouchMove);
+      window.removeEventListener('touchend', handleTouchEnd);
+    };
+  }, [
+    isDragging,
+    isChatOpen,
+    isPersonFoldersOpen,
+    isMapOpen,
+    isCalendarOpen,
+    isRemindersOpen,
+    isNotesOpen,
+    isNotificationsOpen,
+    isContactsOpen,
+    isImageEditorOpen,
+    isSettingsOpen,
+    isGeneratedContentOpen,
+  ]);
+
   const [lastAction, setLastAction] = useState<{
     name: string;
     args: any;
     result: ToolExecutionResult;
     timestamp: number;
   } | null>(null);
-  const [isContactsOpen, setIsContactsOpen] = useState(false);
-  const [contacts, setContacts] = useState<Contact[]>([]);
-  const [isNativeMode, setIsNativeMode] = useState(false);
-  const [isMapOpen, setIsMapOpen] = useState(false);
-  const [mapModalProps, setMapModalProps] = useState<{
-    query?: string;
-    category?: string;
-    center?: { lat: number; lng: number };
-    zoom?: number;
-  }>({});
-  const [quotaExceeded, setQuotaExceeded] = useState(false);
-  const [isLocationPermissionOpen, setIsLocationPermissionOpen] = useState(false);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
 
   useEffect(() => {
@@ -242,12 +435,25 @@ export default function App() {
       setIsMapOpen(true);
     };
 
+    const handleOpenPersonFolders = () => {
+      setIsPersonFoldersOpen(true);
+    };
+
+    const handleModifyImageRequest = (e: any) => {
+      const detail = e.detail || {};
+      setImageEditorInstruction(detail.instruction || '');
+      setImageEditorAction(detail.action || 'general');
+      setIsImageEditorOpen(true);
+    };
+
     window.addEventListener('iris-open-map', handleOpenMap);
     window.addEventListener('iris-map-control', handleMapControl);
     window.addEventListener('gmp-quota-exceeded', handleQuotaExceeded);
     window.addEventListener('iris-open-location-settings', handleOpenLocationSettings);
     window.addEventListener('iris-request-screenshare', handleRequestScreenShare);
     window.addEventListener('iris-open-chat', handleOpenChat);
+    window.addEventListener('iris-open-person-folders', handleOpenPersonFolders);
+    window.addEventListener('iris-modify-image-request', handleModifyImageRequest);
     window.addEventListener('visibilitychange', handleVisibilityChange);
     window.addEventListener('focus', handleVisibilityChange);
 
@@ -258,6 +464,8 @@ export default function App() {
       window.removeEventListener('iris-open-location-settings', handleOpenLocationSettings);
       window.removeEventListener('iris-request-screenshare', handleRequestScreenShare);
       window.removeEventListener('iris-open-chat', handleOpenChat);
+      window.removeEventListener('iris-open-person-folders', handleOpenPersonFolders);
+      window.removeEventListener('iris-modify-image-request', handleModifyImageRequest);
       window.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('focus', handleVisibilityChange);
     };
@@ -337,6 +545,7 @@ export default function App() {
       onUserTranscription: (text) => {
         const cleanUserText = toEnglishAlphabets(text);
         setUserText(cleanUserText);
+        setIrisText(''); // Clear Iris captions when user starts speaking!
         if (!cleanUserText.trim()) return;
 
         // Record user speech in cross-session memory database
@@ -583,10 +792,58 @@ export default function App() {
     setContacts([...clientRef.current.getDeviceBridge().getContacts()]);
   };
 
-  const isDark = theme === 'dark';
+  const isDark = theme === 'dark'; // Custom scroll physics and widget morphing engine
+
+  // Real-time custom top overscroll values
+  const overscrollProgress = Math.min(Math.max(overscrollY / 540, 0), 1);
+  const dockOpacity = overscrollProgress;
+  const contentOpacity = overscrollProgress < 0.25 ? 0 : (overscrollProgress - 0.25) / 0.75;
+  const captionOpacity = Math.max(0, 1 - overscrollProgress * 2.5);
+
+  // 1. TOPMOST Widget gets translated up and motion-blurred
+  const getTopmostWidgetStyle = (progress: number) => {
+    const translateY = -progress * 280; // translates up smoothly
+    const opacity = Math.max(0, 1 - progress * 1.6);
+    const blur = progress * 12; // Premium motion blur effect
+    return {
+      transform: `translate3d(0, ${translateY}px, 0)`,
+      opacity,
+      filter: blur > 0.05 ? `blur(${blur}px)` : 'none',
+      willChange: 'transform, opacity, filter',
+      pointerEvents: progress > 0.35 ? ('none' as const) : ('auto' as const),
+    };
+  };
+
+  // 2. MIDDLE Dock moves to the right and motion-blurred
+  const getMiddleDockStyle = (progress: number) => {
+    const translateX = progress * 480; // translates to the right smoothly
+    const opacity = Math.max(0, 1 - progress * 1.6);
+    const blur = progress * 12; // Premium motion blur effect
+    return {
+      transform: `translate3d(${translateX}px, 0, 0)`,
+      opacity,
+      filter: blur > 0.05 ? `blur(${blur}px)` : 'none',
+      willChange: 'transform, opacity, filter',
+      pointerEvents: progress > 0.35 ? ('none' as const) : ('auto' as const),
+    };
+  };
+
+  // 3. LOWER Widget moves to the left and motion-blurred
+  const getLowerWidgetStyle = (progress: number) => {
+    const translateX = -progress * 480; // translates to the left smoothly
+    const opacity = Math.max(0, 1 - progress * 1.6);
+    const blur = progress * 12; // Premium motion blur effect
+    return {
+      transform: `translate3d(${translateX}px, 0, 0)`,
+      opacity,
+      filter: blur > 0.05 ? `blur(${blur}px)` : 'none',
+      willChange: 'transform, opacity, filter',
+      pointerEvents: progress > 0.35 ? ('none' as const) : ('auto' as const),
+    };
+  };
 
   return (
-    <div className={`min-h-screen flex flex-col font-sans selection:bg-blue-500 selection:text-white relative overflow-x-hidden transition-colors duration-300 ${
+    <div className={`h-screen overflow-hidden flex flex-col font-sans selection:bg-blue-500 selection:text-white relative transition-colors duration-300 ${
       isDark ? 'bg-slate-950 text-slate-100' : 'bg-white text-slate-900'
     }`}>
       {/* Google Maps Quota Defense Banner */}
@@ -625,11 +882,14 @@ export default function App() {
       />
 
       {/* Top Navigation Bar: Settings Icon (Top-Left) & Information Icon (Top-Right) */}
-      <header className={`w-full max-w-5xl mx-auto px-4 py-3 flex items-center justify-between border-b z-20 backdrop-blur-xl rounded-b-2xl transition-all duration-300 ${
-        isDark
-          ? 'bg-slate-950/60 border-cyan-500/20 shadow-[0_15px_35px_rgba(6,182,212,0.14)] text-white'
-          : 'bg-white/50 border-white/70 shadow-[0_15px_35px_rgba(14,165,233,0.14)] text-slate-900'
-      }`}>
+      <header 
+        style={getTopmostWidgetStyle(overscrollProgress)}
+        className={`w-full max-w-5xl mx-auto px-4 py-3 flex items-center justify-between border-b z-20 backdrop-blur-xl rounded-b-2xl transition-all duration-300 ${
+          isDark
+            ? 'bg-slate-950/60 border-cyan-500/20 shadow-[0_15px_35px_rgba(6,182,212,0.14)] text-white'
+            : 'bg-white/50 border-white/70 shadow-[0_15px_35px_rgba(14,165,233,0.14)] text-slate-900'
+        }`}
+      >
         {/* Top Left: Settings Icon */}
         <div className="flex items-center gap-3">
           <button
@@ -764,20 +1024,22 @@ export default function App() {
       )}
 
       {/* Real-Time Live Clock, Location & Timezone Bar */}
-      <LocationTimeBar
-        bridge={clientRef.current ? clientRef.current.getDeviceBridge() : new DeviceActionBridge()}
-        onOpenCalendar={() => setIsCalendarOpen(true)}
-        onOpenReminders={() => setIsRemindersOpen(true)}
-        onOpenNotes={() => setIsNotesOpen(true)}
-        onOpenNotifications={() => setIsNotificationsOpen(true)}
-        onOpenContacts={() => setIsContactsOpen(true)}
-        onOpenPersonFolders={() => setIsPersonFoldersOpen(true)}
-        unreadCount={unreadNotifCount}
-        theme={theme}
-      />
+      <div style={getLowerWidgetStyle(overscrollProgress)} className="w-full">
+        <LocationTimeBar
+          bridge={clientRef.current ? clientRef.current.getDeviceBridge() : new DeviceActionBridge()}
+          onOpenCalendar={() => setIsCalendarOpen(true)}
+          onOpenReminders={() => setIsRemindersOpen(true)}
+          onOpenNotes={() => setIsNotesOpen(true)}
+          onOpenNotifications={() => setIsNotificationsOpen(true)}
+          onOpenContacts={() => setIsContactsOpen(true)}
+          onOpenPersonFolders={() => setIsPersonFoldersOpen(true)}
+          unreadCount={unreadNotifCount}
+          theme={theme}
+        />
+      </div>
 
       {/* Quick Platform App Dock */}
-      <div className="w-full my-1">
+      <div style={getMiddleDockStyle(overscrollProgress)} className="w-full my-1">
         <PlatformDock
           deviceBridge={clientRef.current ? clientRef.current.getDeviceBridge() : new DeviceActionBridge()}
           currentPlatform={platformMode}
@@ -785,6 +1047,7 @@ export default function App() {
             setPlatformMode(mode);
             localStorage.setItem('iris_platform_mode', mode);
           }}
+          onOpenChat={() => setIsChatOpen(true)}
           onExecuteApp={(appId, query) => {
             if (clientRef.current) {
               const bridge = clientRef.current.getDeviceBridge();
@@ -828,18 +1091,113 @@ export default function App() {
         </div>
       )}
 
-      {/* Central Interactive Focus Area with Centralized Glowing Blue Orb & Expanded Speech Log */}
-      <main className="flex-1 w-full max-w-3xl mx-auto px-4 sm:px-6 flex flex-col items-center justify-between z-10 py-2 sm:py-3 space-y-3">
-        {/* Central Advanced Ethereal Harmonic Ribbon Orb with I.R.I.S. Central Hologram */}
-        <IrisOrb
-          state={state}
-          audioLevel={audioLevel}
-          onClick={toggleSession}
-          theme={theme}
-        />
+      {/* Fold 1: Centered Sliding Telemetry Panel on Overscroll */}
+      <section 
+        style={{
+          position: 'fixed',
+          top: '50%',
+          left: '50%',
+          transform: 'translate(-50%, -50%)',
+          width: '100%',
+          maxWidth: '48rem', // max-w-3xl matching main area
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 30,
+          pointerEvents: overscrollProgress > 0.65 ? 'auto' : 'none',
+        }}
+        className="px-4 sm:px-6"
+      >
+        {/* Dynamic Morphing Telemetry Container (Ball -> Line -> Box) */}
+        <div 
+          style={{
+            width: overscrollProgress < 0.35 ? `${48 + (overscrollProgress / 0.35) * 720}px` : '100%',
+            height: overscrollProgress < 0.35 ? `${48 - (overscrollProgress / 0.35) * 44}px` : `${4 + ((overscrollProgress - 0.35) / 0.65) * 446}px`,
+            opacity: dockOpacity,
+            filter: overscrollProgress < 0.3 ? 'blur(16px)' : `blur(${Math.max(0, (1 - overscrollProgress) * 16)}px)`,
+            borderRadius: overscrollProgress < 0.35 ? '9999px' : overscrollProgress < 0.6 ? '2px' : '24px',
+            boxShadow: overscrollProgress < 0.5 ? '0 0 25px rgba(6, 182, 212, 0.85)' : '0 10px 40px rgba(6, 182, 212, 0.15)',
+          }}
+          className={`border backdrop-blur-3xl flex flex-col relative ${
+            theme === 'dark' 
+              ? 'bg-slate-900/95 border-cyan-500/30' 
+              : 'bg-white/95 border-blue-300 shadow-[0_10px_30px_rgba(59,130,246,0.12)]'
+          }`}
+        >
+          {/* Faded content layer in sync with overscroll progress */}
+          <div 
+            style={{ 
+              opacity: contentOpacity, 
+              transition: 'opacity 0.1s ease-out',
+              display: 'flex',
+              flexDirection: 'column',
+              height: '100%',
+              width: '100%'
+            }}
+            className="p-5 overflow-hidden w-full h-full pb-10"
+          >
+            {/* Dynamic Telemetry Header */}
+            <div className="flex items-center justify-between border-b border-slate-800/40 pb-3 mb-3 font-mono text-xs shrink-0">
+              <div className="flex items-center gap-2 font-bold text-cyan-400">
+                <Terminal className="w-4 h-4 text-cyan-400 animate-pulse" />
+                <span>I.R.I.S LIVE TELEMETRY LOGS</span>
+              </div>
+              <div className="flex items-center gap-1.5 font-bold">
+                <History className="w-3.5 h-3.5 text-slate-500" />
+                <span className="text-[10px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded border border-slate-700/20">
+                  {conversationTurns.filter(t => t.role !== 'user').length} Assistant Logs
+                </span>
+              </div>
+            </div>
+
+            {/* Conversation list panel */}
+            <div className="flex-1 overflow-y-auto pr-1">
+              <ConversationHistoryPanel
+                turns={conversationTurns.filter(t => t.role !== 'user')}
+                state={state}
+                theme={theme}
+                onOpenPopup={(data) => {
+                  setGeneratedContentData(data);
+                  setIsGeneratedContentOpen(true);
+                }}
+                onOpenCamera={() => setIsCameraOpen(true)}
+              />
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Fold 2: Central Interactive Focus Area with Centralized Glowing Blue Orb */}
+      <main 
+        style={{
+          transform: `translateY(${overscrollY * 0.25}px)`,
+          transition: 'transform 0.35s cubic-bezier(0.16, 1, 0.3, 1)',
+        }}
+        className="flex-1 w-full max-w-3xl mx-auto px-4 sm:px-6 flex flex-col items-center justify-between z-10 py-4 sm:py-6 space-y-4 h-[calc(100vh-140px)] shrink-0 relative"
+      >
+        {/* Centered Orb with sliding translation into bottom center bezel of Telemetry Panel (Mathematically Synchronized with 0.35 phase curve) */}
+        <div 
+          style={{
+            transform: `translateY(${overscrollProgress < 0.35 ? 0 : ((overscrollProgress - 0.35) / 0.65) * 200}px) scale(${overscrollProgress < 0.35 ? 1.0 : 1.0 - ((overscrollProgress - 0.35) / 0.65) * 0.45})`,
+            filter: `blur(${overscrollProgress * (1 - overscrollProgress) * 12}px) drop-shadow(0 0 ${15 + overscrollProgress * 25}px rgba(6,182,212,${0.25 + overscrollProgress * 0.5}))`,
+          }}
+          className="relative z-40 flex flex-col items-center"
+        >
+          {/* Central Advanced Ethereal Harmonic Ribbon Orb with I.R.I.S. Central Hologram */}
+          <IrisOrb
+            state={state}
+            audioLevel={audioLevel}
+            onClick={toggleSession}
+            theme={theme}
+            overscrollProgress={overscrollProgress}
+          />
+        </div>
 
         {/* Real-Time Acoustic Voice Recognition & Identified Speaker Pill */}
-        <div className="flex items-center justify-center -mt-1 mb-1">
+        <div 
+          style={getLowerWidgetStyle(overscrollProgress)}
+          className="flex items-center justify-center -mt-2 mb-2 z-10"
+        >
           <button
             type="button"
             onClick={() => setIsPersonFoldersOpen(true)}
@@ -873,36 +1231,60 @@ export default function App() {
           </button>
         </div>
 
-        {/* Live Conversation Stream / Speech Log - Expanded in length right up to the Chat button */}
-        <div className="w-full flex-1 flex flex-col">
-          <ConversationHistoryPanel
-            turns={conversationTurns}
-            state={state}
-            theme={theme}
-            onOpenPopup={(data) => {
-              setGeneratedContentData(data);
-              setIsGeneratedContentOpen(true);
-            }}
-            onOpenCamera={() => setIsCameraOpen(true)}
-          />
+        {/* Beautiful Captions with Fade-in and Fade-out Transitions */}
+        <div 
+          style={{
+            opacity: irisText && state === 'SPEAKING' ? captionOpacity : 0,
+            pointerEvents: captionOpacity < 0.15 ? 'none' : 'auto',
+            transform: `translateY(${overscrollProgress * 30}px)`,
+            transition: 'opacity 0.2s cubic-bezier(0.25, 1, 0.5, 1), transform 0.2s ease-out',
+          }}
+          className="w-full max-w-xl mx-auto px-4 my-1 flex-1 flex items-center justify-center"
+        >
+          <div className={`w-full p-4 rounded-2xl border text-center shadow-md relative overflow-hidden backdrop-blur-md ${
+            theme === 'dark'
+              ? 'bg-slate-900/90 border-cyan-500/25 text-cyan-200 shadow-cyan-950/20 shadow-[0_0_20px_rgba(6,182,212,0.12)]'
+              : 'bg-white/95 border-blue-200 text-blue-900 shadow-blue-100/50 shadow-[0_0_15px_rgba(37,99,235,0.08)]'
+          }`}>
+            {/* Top tiny caption helper icon */}
+            <div className="absolute top-1 right-2 flex items-center gap-1 opacity-45">
+              <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+              <span className="text-[8px] font-mono tracking-widest text-slate-400">IRIS CAPTIONS</span>
+            </div>
+            {/* 2-lines limited caption text block */}
+            <p className="text-xs sm:text-sm font-semibold leading-relaxed line-clamp-2 overflow-hidden text-ellipsis select-text">
+              {irisText || "..."}
+            </p>
+          </div>
         </div>
 
-        {/* Dedicated Chat Panel Button at the Bottom Center */}
-        <div className="pt-1 pb-2 flex justify-center w-full">
-          <button
-            type="button"
-            onClick={() => setIsChatOpen(true)}
-            className="px-6 py-3 rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-sm flex items-center gap-2.5 shadow-[0_15px_35px_rgba(37,99,235,0.35)] hover:shadow-[0_20px_45px_rgba(37,99,235,0.45)] hover:scale-105 active:scale-95 transition-all group spring-button"
-            title="Open Multimodal Chat & File Lab (Hotkey: C)"
-          >
-            <div className="p-1 rounded-lg bg-white/20 text-white">
-              <MessageSquare className="w-4 h-4" />
-            </div>
-            <span>Open Chat Panel</span>
-            <span className="text-xs px-2 py-0.5 rounded bg-white/20 font-mono text-white/90">
-              C
-            </span>
-          </button>
+        {/* Dynamic bottom gesture instructions */}
+        <div className="flex flex-col items-center gap-1 shrink-0 pb-1 w-full">
+          {overscrollProgress < 0.1 ? (
+            <button
+              onClick={() => setOverscrollY(540)}
+              className="group transition-all duration-300 flex flex-col items-center gap-1 cursor-pointer"
+            >
+              <div className="w-5 h-8 border-2 border-slate-500/60 rounded-full flex justify-center p-1 opacity-50 animate-bounce">
+                <div className="w-1.5 h-2.5 bg-slate-500/80 rounded-full" />
+              </div>
+              <span className="text-[9px] font-mono tracking-widest text-slate-500 group-hover:text-cyan-400 transition-colors uppercase">
+                SCROLL UP OR PULL DOWN FOR TELEMETRY
+              </span>
+            </button>
+          ) : (
+            <button
+              onClick={() => setOverscrollY(0)}
+              className="group transition-all duration-300 flex flex-col items-center gap-1 cursor-pointer"
+            >
+              <div className="w-5 h-5 flex items-center justify-center opacity-60 animate-bounce">
+                <ChevronUp className="w-4 h-4 text-cyan-400" />
+              </div>
+              <span className="text-[9px] font-mono tracking-widest text-cyan-400/80 group-hover:text-white transition-colors uppercase">
+                SCROLL DOWN OR PUSH UP TO CLOSE
+              </span>
+            </button>
+          )}
         </div>
       </main>
 
@@ -917,6 +1299,51 @@ export default function App() {
             ...info,
             timestamp: Date.now(),
           });
+
+          // Open the corresponding feature modal depending on which tool was executed from the text chat!
+          const { name, result } = info;
+          if (
+            name === 'openGoogleMap' ||
+            name === 'controlGoogleMap' ||
+            name === 'getCurrentLocation' ||
+            name === 'getPreciseLocation' ||
+            name === 'searchNearbyPlaces' ||
+            name === 'getDirectionsAndNavigation'
+          ) {
+            setIsMapOpen(true);
+          } else if (
+            name === 'scheduleMeeting' ||
+            name === 'createCalendarEvent' ||
+            name === 'listCalendarEvents'
+          ) {
+            setIsCalendarOpen(true);
+          } else if (
+            name === 'setReminder' ||
+            name === 'addReminder' ||
+            name === 'listReminders'
+          ) {
+            setIsRemindersOpen(true);
+          } else if (
+            name === 'createNote' ||
+            name === 'listNotes'
+          ) {
+            setIsNotesOpen(true);
+          } else if (
+            name === 'readNotifications' ||
+            name === 'replyNotification'
+          ) {
+            setIsNotificationsOpen(true);
+          } else if (
+            (name === 'showGeneratedContent' || name === 'showLink' || name === 'retrieveFile') &&
+            result?.data
+          ) {
+            setGeneratedContentData(result.data);
+            setIsGeneratedContentOpen(true);
+          } else if (name === 'modifyImage' || name === 'editImage') {
+            setImageEditorInstruction(info.args?.instruction || '');
+            setImageEditorAction(info.args?.action || 'general');
+            setIsImageEditorOpen(true);
+          }
         }}
         hasMicError={state === 'ERROR' || !!errorMessage}
       />
@@ -1106,6 +1533,15 @@ export default function App() {
           setIsLocationPermissionOpen(false);
           locationService.requestPreciseLocation(true);
         }}
+      />
+
+      {/* Multimodal Image Modification Lab & Canvas Modal */}
+      <ImageEditorModal
+        isOpen={isImageEditorOpen}
+        onClose={() => setIsImageEditorOpen(false)}
+        bridge={clientRef.current ? clientRef.current.getDeviceBridge() : new DeviceActionBridge()}
+        initialInstruction={imageEditorInstruction}
+        initialAction={imageEditorAction}
       />
 
       {/* Iris Visual Screen Annotation & Highlight Layer */}

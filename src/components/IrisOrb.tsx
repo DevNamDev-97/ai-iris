@@ -7,9 +7,10 @@ interface IrisOrbProps {
   audioLevel: number; // 0.0 to 1.0
   onClick: () => void;
   theme?: 'light' | 'dark';
+  overscrollProgress?: number;
 }
 
-export const IrisOrb: React.FC<IrisOrbProps> = ({ state, audioLevel, onClick, theme = 'light' }) => {
+export const IrisOrb: React.FC<IrisOrbProps> = ({ state, audioLevel, onClick, theme = 'light', overscrollProgress = 0 }) => {
   const [ripples, setRipples] = useState<Array<{ id: number; x: number; y: number }>>([]);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const audioRef = useRef<number>(audioLevel);
@@ -40,7 +41,7 @@ export const IrisOrb: React.FC<IrisOrbProps> = ({ state, audioLevel, onClick, th
     let lastTime = performance.now();
 
     const dpr = window.devicePixelRatio || 2;
-    const size = 440; // Generous canvas size for broad wave dispersion
+    const size = 560; // Increased logical canvas size to give ample clearance for waves without cropping
     canvas.width = size * dpr;
     canvas.height = size * dpr;
 
@@ -94,21 +95,59 @@ export const IrisOrb: React.FC<IrisOrbProps> = ({ state, audioLevel, onClick, th
 
         if (currentState === 'ERROR') {
           ctx.strokeStyle = `rgba(220, 38, 38, ${alpha * 0.9})`;
+        } else if (currentState === 'SPEAKING') {
+          // Iris actively speaking: dynamic shifting visual ribbon in neon cyan, electric blue & purple gradients
+          const r = Math.round(59 + 55 * Math.sin(progress * Math.PI + elapsed * 2.5));
+          const g = Math.round(130 + 105 * Math.cos(progress * Math.PI - elapsed * 1.8));
+          const b = Math.round(246 + 9 * Math.sin(progress * Math.PI * 2 + elapsed * 2.2));
+          ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${alpha * 0.95})`;
+        } else if (currentState === 'CONNECTING') {
+          // Iris processing/loading: unique warm cosmic amber/golden pulsing waves
+          const r = Math.round(217 + 28 * Math.sin(elapsed * 5));
+          const g = Math.round(119 + 30 * Math.cos(elapsed * 3));
+          const b = Math.round(6 + 5 * Math.sin(elapsed * 4));
+          ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${alpha * 0.85})`;
         } else {
-          // Pure Black Lines
+          // When user is speaking (LISTENING) or IDLE: clean, classic solid black
           ctx.strokeStyle = `rgba(0, 0, 0, ${alpha * 0.95})`;
         }
 
         ctx.lineWidth = 1.0 + (1 - Math.abs(progress - 0.5) * 2) * 0.85;
 
+        // Pattern Coefficients changes based on processing vs speaking (MUST be strictly integers to avoid horizontal loop tearing)
+        let wave1Multiplier = 4;
+        let wave2Multiplier = 3;
+        let wave3Multiplier = 6;
+        let wave4Multiplier = 2;
+
+        if (currentState === 'CONNECTING') {
+          // Dense concentric sphere for processing
+          wave1Multiplier = 8;
+          wave2Multiplier = 5;
+          wave3Multiplier = 11;
+          wave4Multiplier = 3;
+        } else if (currentState === 'SPEAKING') {
+          // Shifting ribbon waves for speaking (using pure integers to prevent tearing)
+          wave1Multiplier = 3;
+          wave2Multiplier = 2;
+          wave3Multiplier = 5;
+          wave4Multiplier = 4;
+        }
+
+        // Dynamic morphing multipliers to make waves flow and breathe beautifully
+        const morph1 = 0.78 + 0.15 * Math.sin(elapsed * 1.4);
+        const morph2 = 0.48 + 0.12 * Math.cos(elapsed * 1.1);
+        const morph3 = 0.28 + 0.08 * Math.sin(elapsed * 1.8);
+        const morph4 = 0.38 + 0.10 * Math.cos(elapsed * 0.9);
+
         for (let j = 0; j <= pointsPerLoop; j++) {
           const theta = (j / pointsPerLoop) * Math.PI * 2;
 
-          // Harmonic multi-frequency parametric rosette equation
-          const wave1 = Math.sin(theta * 4 + smoothRotation * 1.2 + phaseOffset) * lineAmp * 0.78;
-          const wave2 = Math.cos(theta * 3 - smoothRotation * 0.8 + phaseOffset * 1.4) * lineAmp * 0.48;
-          const wave3 = Math.sin(theta * 6 + smoothRotation * 2.1 - phaseOffset * 0.6) * (lineAmp * 0.28);
-          const wave4 = Math.cos(theta * 2 + elapsed * 1.5 + phaseOffset * 0.8) * (lineAmp * 0.38);
+          // Harmonic multi-frequency parametric rosette equation (using integers + phase modulation)
+          const wave1 = Math.sin(theta * wave1Multiplier + smoothRotation * 1.2 + phaseOffset + elapsed * 1.5) * lineAmp * morph1;
+          const wave2 = Math.cos(theta * wave2Multiplier - smoothRotation * 0.8 + phaseOffset * 1.4 - elapsed * 1.2) * lineAmp * morph2;
+          const wave3 = Math.sin(theta * wave3Multiplier + smoothRotation * 2.1 - phaseOffset * 0.6 + elapsed * 2.0) * (lineAmp * morph3);
+          const wave4 = Math.cos(theta * wave4Multiplier + elapsed * 1.5 + phaseOffset * 0.8) * (lineAmp * morph4);
 
           const r = baseRadius + wave1 + wave2 + wave3 + wave4;
 
@@ -210,16 +249,27 @@ export const IrisOrb: React.FC<IrisOrbProps> = ({ state, audioLevel, onClick, th
         <canvas
           ref={canvasRef}
           style={{
-            width: '100%',
-            height: '100%',
+            position: 'absolute',
+            width: '125%',
+            height: '125%',
+            left: '-12.5%',
+            top: '-12.5%',
             transform: `scale(${scaleMultiplier})`,
             filter: state === 'ERROR' ? 'drop-shadow(0 0 10px rgba(239, 68, 68, 0.4))' : 'drop-shadow(0 2px 6px rgba(0, 0, 0, 0.12))',
+            opacity: 1.0,
+            transition: 'opacity 0.08s ease-out',
           }}
-          className="relative z-10 pointer-events-none transition-transform duration-100 will-change-transform"
+          className="z-10 pointer-events-none transition-transform duration-100 will-change-transform"
         />
 
         {/* 3. Floating Central Futuristic Gradient Text (Wider Tracking / Longer Span, No Button) */}
-        <div className="absolute z-20 flex flex-col items-center justify-center text-center pointer-events-none select-none">
+        <div 
+          style={{
+            opacity: Math.max(0, 1 - overscrollProgress * 2.0),
+            transition: 'opacity 0.08s ease-out',
+          }}
+          className="absolute z-20 flex flex-col items-center justify-center text-center pointer-events-none select-none"
+        >
           <span
             className="font-mono font-black text-[13px] sm:text-[14px] uppercase bg-gradient-to-r from-blue-900 via-cyan-800 to-indigo-950 dark:from-blue-700 dark:via-cyan-600 dark:to-indigo-800 bg-clip-text text-transparent drop-shadow-xs transition-all duration-300"
             style={{
@@ -252,7 +302,13 @@ export const IrisOrb: React.FC<IrisOrbProps> = ({ state, audioLevel, onClick, th
       </div>
 
       {/* Sub-orb Quick Interactive Cue in Solid Pure Black */}
-      <div className="mt-1 flex flex-col items-center text-center">
+      <div 
+        style={{
+          opacity: Math.max(0, 1 - overscrollProgress * 2.0),
+          transition: 'opacity 0.08s ease-out',
+        }}
+        className="mt-1 flex flex-col items-center text-center"
+      >
         <span className="text-[10px] font-mono font-black uppercase tracking-wider text-black hover:opacity-80 transition-opacity">
           {state === 'IDLE' || state === 'ERROR' ? 'TAP WAVES TO ENGAGE LINK' : 'TAP TO DISCONNECT'}
         </span>

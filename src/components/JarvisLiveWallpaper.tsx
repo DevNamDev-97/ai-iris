@@ -98,11 +98,13 @@ export const JarvisLiveWallpaper: React.FC<JarvisLiveWallpaperProps> = ({
 
     window.addEventListener('pointerdown', handlePointerDown);
 
-    // Particle system with directional velocity vectors for motion blur streaks
-    const particleCount = 60;
+    // Particle system with 360-degree randomized directional velocity vectors and shimmer controls
+    const particleCount = 65;
     const particles: MotionParticle[] = Array.from({ length: particleCount }).map(() => {
-      const baseVx = (Math.random() - 0.5) * 0.45;
-      const baseVy = -0.25 - Math.random() * 0.55;
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 0.12 + Math.random() * 0.48;
+      const baseVx = Math.cos(angle) * speed;
+      const baseVy = Math.sin(angle) * speed;
       return {
         x: Math.random() * width,
         y: Math.random() * height,
@@ -110,10 +112,10 @@ export const JarvisLiveWallpaper: React.FC<JarvisLiveWallpaperProps> = ({
         vy: baseVy,
         baseVx,
         baseVy,
-        size: 1.2 + Math.random() * 2.4,
-        baseAlpha: 0.15 + Math.random() * 0.35,
+        size: 1.0 + Math.random() * 2.5,
+        baseAlpha: 0.15 + Math.random() * 0.45,
         pulsePhase: Math.random() * Math.PI * 2,
-        pulseSpeed: 0.018 + Math.random() * 0.024,
+        pulseSpeed: 0.04 + Math.random() * 0.08, // faster shimmer speeds
       };
     });
 
@@ -314,24 +316,33 @@ export const JarvisLiveWallpaper: React.FC<JarvisLiveWallpaperProps> = ({
       // 6. Floating Particles with Directional Velocity Motion Blur Streaks
       particles.forEach((p) => {
         // Apply ambient velocity & audio lift with spring damping
-        p.vx += (p.baseVx * (1 + smoothAudio * 0.6) - p.vx) * 0.08;
-        p.vy += ((p.baseVy - smoothAudio * 0.9) - p.vy) * 0.08;
+        p.vx += (p.baseVx * (1 + smoothAudio * 0.7) - p.vx) * 0.08;
+        p.vy += (p.baseVy * (1 + smoothAudio * 0.7) - p.vy) * 0.08;
 
         p.x += p.vx * (dt * 60);
         p.y += p.vy * (dt * 60);
         p.pulsePhase += p.pulseSpeed * (dt * 60);
 
+        // Responsive wrapping for 360 degree particle drifts
         if (p.y < -20) {
-          p.y = height + 20;
+          p.y = height + 15;
           p.x = Math.random() * width;
-          p.vx = p.baseVx;
-          p.vy = p.baseVy;
+        } else if (p.y > height + 20) {
+          p.y = -15;
+          p.x = Math.random() * width;
         }
-        if (p.x < -20) p.x = width + 20;
-        if (p.x > width + 20) p.x = -20;
+        if (p.x < -20) {
+          p.x = width + 15;
+          p.y = Math.random() * height;
+        } else if (p.x > width + 20) {
+          p.x = -15;
+          p.y = Math.random() * height;
+        }
 
-        const dynamicAlpha = p.baseAlpha * (0.6 + Math.sin(p.pulsePhase) * 0.4) + smoothAudio * 0.18;
-        const currentAlpha = Math.min(0.65, Math.max(0.08, dynamicAlpha));
+        // Shimmer term
+        const shimmer = 0.7 + 0.3 * Math.sin(p.pulsePhase * 7.5 + p.x * 0.02);
+        const dynamicAlpha = p.baseAlpha * (0.45 + Math.sin(p.pulsePhase) * 0.25) * shimmer + smoothAudio * 0.15;
+        const currentAlpha = Math.min(0.7, Math.max(0.08, dynamicAlpha));
 
         // Compute instantaneous velocity magnitude for dynamic motion blur streak length
         const speedMag = Math.hypot(p.vx, p.vy);
