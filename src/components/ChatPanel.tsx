@@ -23,7 +23,6 @@ import { MarkdownRenderer } from './MarkdownRenderer.tsx';
 import { FuturisticScrollTrack } from './FuturisticScrollTrack.tsx';
 import { locationService } from '../services/locationService.ts';
 import { crossSessionMemory } from '../services/crossSessionMemory.ts';
-import { speakerMemoryStore } from '../services/speakerMemoryStore.ts';
 import { toEnglishAlphabets } from '../utils/transliteration.ts';
 
 export interface AttachedFile {
@@ -52,6 +51,10 @@ interface ChatPanelProps {
   onToolExecuted?: (info: { name: string; args: any; result: ToolExecutionResult }) => void;
   hasMicError?: boolean;
   theme?: 'light' | 'dark';
+  isDeveloperAuthenticated?: boolean;
+  hasDeveloperAuthenticationFailed?: boolean;
+  onTriggerDevChallenge?: () => void;
+  onTriggerRebootChallenge?: () => void;
 }
 
 const QUICK_PROMPTS = [
@@ -71,27 +74,30 @@ const WELCOME_MESSAGES = [
   (name: string) => `Hey ${name}! Mast dosti wali vibes ke sath hazir hoon! Chal bata, aaj tera kya plan hai aur main kaise help karu?`,
 ];
 
-const getRandomWelcomeMessage = () => {
-  const activeFolder = speakerMemoryStore.getActiveFolder();
-  const userName = activeFolder?.name || 'yaar';
+const getRandomWelcomeMessage = (isDeveloper: boolean) => {
+  const userName = isDeveloper ? 'Dev' : 'yaar';
   const randomIndex = Math.floor(Math.random() * WELCOME_MESSAGES.length);
   return WELCOME_MESSAGES[randomIndex](userName);
 };
 
-export const ChatPanel: React.FC<ChatPanelProps> = ({
+const ChatPanelComponent: React.FC<ChatPanelProps> = ({
   isOpen,
   onClose,
   deviceBridge,
   onToolExecuted,
   hasMicError,
   theme = 'light',
+  isDeveloperAuthenticated = false,
+  hasDeveloperAuthenticationFailed = false,
+  onTriggerDevChallenge,
+  onTriggerRebootChallenge,
 }) => {
   const isDark = theme === 'dark';
   const [messages, setMessages] = useState<ChatMessage[]>(() => [
     {
       id: 'welcome-1',
       role: 'iris',
-      text: getRandomWelcomeMessage(),
+      text: getRandomWelcomeMessage(isDeveloperAuthenticated),
       timestamp: Date.now(),
     },
   ]);
@@ -117,7 +123,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
             {
               id: `welcome_${Date.now()}`,
               role: 'iris',
-              text: getRandomWelcomeMessage(),
+              text: getRandomWelcomeMessage(isDeveloperAuthenticated),
               timestamp: Date.now(),
             }
           ];
@@ -125,7 +131,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
         return prev;
       });
     }
-  }, [isOpen]);
+  }, [isOpen, isDeveloperAuthenticated]);
 
   if (!isOpen) return null;
 
@@ -175,6 +181,33 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
       return;
     }
 
+    // Intercept if they say they are Dev and are not yet authenticated
+    const hasDevKeyword = text.toLowerCase().match(/\b(dev|developer)\b/i);
+    if (hasDevKeyword && !isDeveloperAuthenticated) {
+      if (onTriggerDevChallenge) {
+        onTriggerDevChallenge();
+        setInputText('');
+        return;
+      }
+    }
+
+    // Intercept if they request a reboot
+    const lowerText = text.toLowerCase();
+    const isRebootRequested = 
+      lowerText.includes("iris! reboot") || 
+      lowerText.includes("iris reboot") || 
+      lowerText.includes("system reboot") ||
+      lowerText.includes("reboot system") ||
+      (lowerText.includes("reboot") && lowerText.includes("iris"));
+
+    if (isRebootRequested) {
+      if (onTriggerRebootChallenge) {
+        onTriggerRebootChallenge();
+        setInputText('');
+        return;
+      }
+    }
+
     const currentFiles = [...attachedFiles];
     const userMsgId = `user_${Date.now()}`;
     const newUserMessage: ChatMessage = {
@@ -222,6 +255,8 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
           time: new Date().toLocaleTimeString(),
           date: new Date().toLocaleDateString([], { weekday: 'long', year: 'numeric', month: 'short', day: 'numeric' }),
           voice: localStorage.getItem('iris_preferred_voice') || 'Leda',
+          isDeveloperAuthenticated,
+          hasDeveloperAuthenticationFailed,
         }),
       });
 
@@ -479,33 +514,6 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
                     <div className={`break-words leading-relaxed ${isDark ? 'text-slate-100' : 'text-slate-900'}`}>
                       <MarkdownRenderer content={msg.text} />
                     </div>
-
-                    {/* Audio TTS button for Iris */}
-                    {msg.role === 'iris' && (
-                      <div className={`mt-2.5 pt-2 border-t flex items-center justify-between text-[11px] ${
-                        isDark ? 'border-slate-700/60 text-slate-400' : 'border-slate-200/70 text-slate-500'
-                      }`}>
-                        <button
-                          type="button"
-                          onClick={() => handlePlayTTS(msg.id, msg.text)}
-                          className={`flex items-center gap-1.5 font-mono font-bold hover:underline ${
-                            isDark ? 'text-cyan-400 hover:text-cyan-300' : 'text-blue-600 hover:text-blue-700'
-                          }`}
-                        >
-                          {isPlayingAudioId === msg.id ? (
-                            <>
-                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                              <span>Speaking...</span>
-                            </>
-                          ) : (
-                            <>
-                              <Volume2 className="w-3.5 h-3.5" />
-                              <span>Read Aloud</span>
-                            </>
-                          )}
-                        </button>
-                      </div>
-                    )}
                   </div>
                 </div>
               ))}
@@ -663,3 +671,5 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
     </div>
   );
 };
+
+export const ChatPanel = React.memo(ChatPanelComponent);

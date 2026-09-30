@@ -9,13 +9,10 @@ import {
   MessageSquare,
   RefreshCw,
   Users,
-  Navigation,
   ShieldAlert,
-  FolderOpen,
 } from 'lucide-react';
 import { DeviceActionBridge, DeviceLocationInfo } from '../services/deviceActionBridge.ts';
 import { locationService, PreciseLocation } from '../services/locationService.ts';
-import { speakerMemoryStore } from '../services/speakerMemoryStore.ts';
 
 interface LocationTimeBarProps {
   bridge: DeviceActionBridge;
@@ -24,24 +21,21 @@ interface LocationTimeBarProps {
   onOpenNotes: () => void;
   onOpenNotifications: () => void;
   onOpenContacts: () => void;
-  onOpenPersonFolders?: () => void;
   unreadCount: number;
   theme?: 'light' | 'dark';
 }
 
-export const LocationTimeBar: React.FC<LocationTimeBarProps> = ({
+const LocationTimeBarComponent: React.FC<LocationTimeBarProps> = ({
   bridge,
   onOpenCalendar,
   onOpenReminders,
   onOpenNotes,
   onOpenNotifications,
   onOpenContacts,
-  onOpenPersonFolders,
   unreadCount,
   theme = 'light',
 }) => {
   const isDark = theme === 'dark';
-  const [activeSpeakerName, setActiveSpeakerName] = useState<string>(() => speakerMemoryStore.getActiveFolder().name);
   const [timeStr, setTimeStr] = useState<string>(() => new Date().toLocaleTimeString());
   const [dateStr, setDateStr] = useState<string>(() => new Date().toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }));
   const [locationInfo, setLocationInfo] = useState<DeviceLocationInfo>(() => bridge.getLocationInfo());
@@ -59,14 +53,9 @@ export const LocationTimeBar: React.FC<LocationTimeBarProps> = ({
       setPreciseLocation(loc);
     });
 
-    const unsubSpeaker = speakerMemoryStore.subscribe(() => {
-      setActiveSpeakerName(speakerMemoryStore.getActiveFolder().name);
-    });
-
     return () => {
       clearInterval(timer);
       unsub();
-      unsubSpeaker();
     };
   }, []);
 
@@ -145,7 +134,7 @@ export const LocationTimeBar: React.FC<LocationTimeBarProps> = ({
           {/* Timezone & Refresh */}
           <span className={`${isDark ? 'text-slate-700' : 'text-slate-300'} hidden sm:inline`}>•</span>
           <div className={`hidden sm:flex items-center gap-1 font-mono text-[11px] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-            <Globe className={`w-3 h-3 ${isDark ? 'text-cyan-400' : 'text-blue-500'}`} />
+            <Globe className={`hidden sm:inline w-3 h-3 ${isDark ? 'text-cyan-400' : 'text-blue-500'}`} />
             <span>{locationInfo.timezone}</span>
           </div>
 
@@ -227,22 +216,9 @@ export const LocationTimeBar: React.FC<LocationTimeBarProps> = ({
           <Users className="w-3.5 h-3.5 text-purple-500" />
           <span className="hidden xs:inline">Contacts</span>
         </button>
-
-        {onOpenPersonFolders && (
-          <button
-            onClick={onOpenPersonFolders}
-            title="Voice Recognition & Person Memory Folders"
-            className={`px-2.5 py-1 rounded-lg border text-[11px] font-semibold flex items-center gap-1.5 transition-all spring-button ${
-              isDark
-                ? 'bg-cyan-950/60 hover:bg-cyan-900/70 border-cyan-500/40 text-cyan-300 shadow-[0_0_12px_rgba(6,182,212,0.2)]'
-                : 'bg-blue-50/90 hover:bg-blue-100 border-blue-300 text-blue-700 shadow-xs'
-            }`}
-          >
-            <FolderOpen className="w-3.5 h-3.5 text-cyan-500" />
-            <span className="truncate max-w-[90px] sm:max-w-none">📁 {activeSpeakerName}</span>
-          </button>
-        )}
       </div>
     </div>
   );
 };
+
+export const LocationTimeBar = React.memo(LocationTimeBarComponent);

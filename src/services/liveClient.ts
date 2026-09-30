@@ -23,6 +23,7 @@ export interface LiveClientCallbacks {
   onToolAction: (actionInfo: { name: string; args: any; result: ToolExecutionResult }) => void;
   onRequestFileUpload?: (data: { fileType: string; message: string }) => void;
   onShowGeneratedContent?: (data: { title: string; contentType: 'code' | 'prompt' | 'text' | 'link'; language?: string; content: string; url?: string; summary?: string }) => void;
+  onShowStructuredList?: (data: { title: string; description?: string; category?: string; columns: any[]; rows: any[] }) => void;
   onInterruption?: () => void;
   onAcousticPitch?: (data: { pitchHz: number; spectralCentroid?: number; detectedGender?: 'male' | 'female' | 'ambiguous'; speakerName: string; confidence: number }) => void;
   onError: (errorMsg: string) => void;
@@ -120,9 +121,10 @@ export class LiveClient {
       if (locInfo.city) params.set('city', locInfo.city);
       if (locInfo.formattedTime) params.set('time', locInfo.formattedTime);
       if (locInfo.formattedDate) params.set('date', locInfo.formattedDate);
-      if (activeFolder?.name) params.set('speaker', activeFolder.name);
-      if (activeFolder?.gender) params.set('speakerGender', activeFolder.gender);
-      if (activeFolder?.grammaticalStyle) params.set('speakerGrammar', activeFolder.grammaticalStyle);
+      const isDeveloper = localStorage.getItem('iris_is_developer') === 'true';
+      const developerFailed = localStorage.getItem('iris_developer_failed') === 'true';
+      if (isDeveloper) params.set('isDev', 'true');
+      if (developerFailed) params.set('mismatch', 'true');
 
       const wsUrl = `${protocol}//${window.location.host}/api/live?${params.toString()}`;
       console.log(`🔌 [LiveClient] Connecting to WebSocket: ${wsUrl}`);
@@ -131,20 +133,6 @@ export class LiveClient {
 
       this.ws.onopen = async () => {
         console.log('⚡ [LiveClient] WebSocket connection established with Iris backend. Awaiting session_ready...');
-        // Transmit full registered speaker profiles and initial active folder
-        try {
-          const allFolders = speakerMemoryStore.getFolders();
-          const activeSpk = speakerMemoryStore.getActiveFolder();
-          this.ws?.send(
-            JSON.stringify({
-              type: 'speaker_init',
-              activeSpeaker: activeSpk,
-              registeredSpeakers: allFolders,
-            })
-          );
-        } catch (e) {
-          console.warn('Error sending initial speaker config:', e);
-        }
       };
 
       this.ws.onmessage = async (event) => {
@@ -191,48 +179,7 @@ export class LiveClient {
             }
           },
           onAcousticData: (data) => {
-            const effectivePitch = data.smoothedPitchHz || data.pitchHz;
-            if (effectivePitch > 65 && data.confidence > 0.35) {
-              const speakers = speakerMemoryStore.getRegisteredSpeakers();
-              const match = matchSpeakerAcoustic(effectivePitch, data.spectralCentroid, speakers, data.spectralRatio || 1.3);
-
-              speakerMemoryStore.recordLiveAcoustics(effectivePitch, data.spectralCentroid);
-
-              if (match.isRecognized && match.speaker) {
-                speakerMemoryStore.setActiveSpeaker(match.speaker.id);
-                speakerMemoryStore.updateLiveAcoustics(match.speaker.id, effectivePitch, data.spectralCentroid);
-              }
-
-              this.callbacks.onAcousticPitch?.({
-                pitchHz: effectivePitch,
-                spectralCentroid: data.spectralCentroid,
-                detectedGender: match.detectedGender,
-                speakerName: match.speakerName,
-                confidence: match.confidence,
-              });
-
-              // Transmit live acoustic identity to backend if speaker identity changes or every 1.5s
-              const now = Date.now();
-              const speakerChanged = match.speakerName !== this.lastSentSpeakerName;
-              if ((speakerChanged || now - this.lastAcousticSendTime > 1500) && this.ws?.readyState === WebSocket.OPEN) {
-                this.lastAcousticSendTime = now;
-                this.lastSentSpeakerName = match.speakerName;
-                this.ws.send(
-                  JSON.stringify({
-                    type: 'speaker_acoustic_telemetry',
-                    pitchHz: effectivePitch,
-                    spectralCentroid: data.spectralCentroid,
-                    spectralRatio: data.spectralRatio || 1.3,
-                    speakerName: match.speakerName,
-                    isRecognized: match.isRecognized,
-                    gender: match.detectedGender,
-                    grammaticalStyle: match.grammaticalStyle,
-                    confidence: match.confidence,
-                    activeSpeakerFolder: speakerMemoryStore.getActiveFolder(),
-                  })
-                );
-              }
-            }
+            // Biometric voice identification removed completely
           },
           onError: (err) => {
             console.warn('⚠️ [LiveClient] Microphone notice:', err?.message);
@@ -376,6 +323,17 @@ export class LiveClient {
           this.startScreenShare();
         }
 
+        if (name === 'showStructuredList' || name === 'createSpreadsheet' || name === 'showSpreadsheet' || name === 'createGridList') {
+          console.log('📊 [LiveClient] Showing structured Excel Sheet & Grid Catalog on user screen');
+          this.callbacks.onShowStructuredList?.({
+            title: args?.title || 'Structured List',
+            description: args?.description || '',
+            category: args?.category || 'general',
+            columns: args?.columns || [],
+            rows: args?.rows || [],
+          });
+        }
+
         if (name === 'showGeneratedContent') {
           console.log('✨ [LiveClient] Showing generated content popup modal on user screen');
           this.callbacks.onShowGeneratedContent?.({
@@ -479,6 +437,23 @@ export class LiveClient {
    */
   stopScreenShare(): void {
     screenShareService.stopScreenShare();
+  }
+
+  /**
+   * Send auth update event to Gemini Live and immediately clear old audio queues
+   */
+  sendAuthUpdate(isDeveloper: boolean): void {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      console.log(`🔐 [LiveClient] Sending auth update (isDeveloper=${isDeveloper}) to Gemini Live session`);
+      this.playbackQueue.interrupt();
+      this.isSpeaking = false;
+      this.ws.send(
+        JSON.stringify({
+          type: 'auth_update',
+          isDeveloper,
+        })
+      );
+    }
   }
 
   /**

@@ -330,13 +330,14 @@ export const InformationModal: React.FC<InformationModalProps> = ({
           {activeTab === 'about' && (
             <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-3 text-xs leading-relaxed text-slate-600">
               <div className="flex items-center gap-2 font-mono font-bold text-slate-900 text-sm">
-                <span>I.R.I.S (Intelligent Real-time Interactive System)</span>
+                <span>I.R.I.S (Information Retrieval Intelligence System)</span>
               </div>
               <p>
-                I.R.I.S is a next-generation real-time voice and multimodal AI assistant. She speaks with a witty, vibrant, confident, and playful personality in natural Hinglish and English.
+                I.R.I.S (Information Retrieval Intelligence System) is a next-generation real-time voice and multimodal AI assistant. She speaks with a witty, vibrant, confident, and playful personality in natural Hinglish and English.
               </p>
               <div className="p-3 rounded-xl bg-white border border-slate-200 text-slate-800 font-mono text-[11px] space-y-1">
                 <div>• CREATOR - Dev</div>
+                <div>• Full Name: Information Retrieval Intelligence System</div>
                 <div>• Architecture: Gemini Live Full-Duplex Audio Engine</div>
                 <div>• Core Platform: Clean White HUD Interface with Central Audio-Bisected Orb</div>
               </div>

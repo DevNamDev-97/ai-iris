@@ -29,7 +29,7 @@ interface ConversationHistoryPanelProps {
   theme?: 'light' | 'dark';
 }
 
-export const ConversationHistoryPanel: React.FC<ConversationHistoryPanelProps> = ({
+const ConversationHistoryPanelComponent: React.FC<ConversationHistoryPanelProps> = ({
   turns,
   state,
   onOpenPopup,
@@ -215,3 +215,5 @@ export const ConversationHistoryPanel: React.FC<ConversationHistoryPanelProps> =
     </div>
   );
 };
+
+export const ConversationHistoryPanel = React.memo(ConversationHistoryPanelComponent);

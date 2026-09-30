@@ -33,13 +33,13 @@ export const FuturisticScrollTrack: React.FC<FuturisticScrollTrackProps> = ({
     const { scrollTop, scrollHeight, clientHeight } = el;
     const maxScroll = scrollHeight - clientHeight;
     const overflow = maxScroll > 4;
-    setHasOverflow(overflow);
+    setHasOverflow((prev) => (prev !== overflow ? overflow : prev));
 
-    if (overflow) {
+    if (overflow && maxScroll > 0) {
       const progress = Math.min(1, Math.max(0, scrollTop / maxScroll));
-      setScrollProgress(progress);
+      setScrollProgress((prev) => (Math.abs(prev - progress) > 0.005 ? progress : prev));
     } else {
-      setScrollProgress(0);
+      setScrollProgress((prev) => (prev !== 0 ? 0 : prev));
     }
   }, []);
 

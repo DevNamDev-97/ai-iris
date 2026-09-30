@@ -10,7 +10,7 @@ interface IrisOrbProps {
   overscrollProgress?: number;
 }
 
-export const IrisOrb: React.FC<IrisOrbProps> = ({ state, audioLevel, onClick, theme = 'light', overscrollProgress = 0 }) => {
+const IrisOrbComponent: React.FC<IrisOrbProps> = ({ state, audioLevel, onClick, theme = 'light', overscrollProgress = 0 }) => {
   const [ripples, setRipples] = useState<Array<{ id: number; x: number; y: number }>>([]);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const audioRef = useRef<number>(audioLevel);
@@ -40,7 +40,7 @@ export const IrisOrb: React.FC<IrisOrbProps> = ({ state, audioLevel, onClick, th
     let smoothRotation = 0;
     let lastTime = performance.now();
 
-    const dpr = window.devicePixelRatio || 2;
+    const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
     const size = 560; // Increased logical canvas size to give ample clearance for waves without cropping
     canvas.width = size * dpr;
     canvas.height = size * dpr;
@@ -78,9 +78,9 @@ export const IrisOrb: React.FC<IrisOrbProps> = ({ state, audioLevel, onClick, th
       // Large base radius (136px) creates a wide, open center zone with ample clearance
       const baseRadius = 136;
 
-      // Draw Multi-layered Harmonic Silk Ribbon Loops in Pure Jet Black (48 fine lines)
-      const numLines = 48;
-      const pointsPerLoop = 220;
+      // Draw Multi-layered Harmonic Silk Ribbon Loops (32 fine lines x 128 points)
+      const numLines = 32;
+      const pointsPerLoop = 128;
 
       for (let i = 0; i < numLines; i++) {
         const progress = i / (numLines - 1); // 0 to 1
@@ -316,3 +316,5 @@ export const IrisOrb: React.FC<IrisOrbProps> = ({ state, audioLevel, onClick, th
     </div>
   );
 };
+
+export const IrisOrb = React.memo(IrisOrbComponent);

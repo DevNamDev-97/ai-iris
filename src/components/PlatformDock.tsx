@@ -29,7 +29,7 @@ interface PlatformDockProps {
   onOpenChat?: () => void;
 }
 
-export const PlatformDock: React.FC<PlatformDockProps> = ({
+const PlatformDockComponent: React.FC<PlatformDockProps> = ({
   deviceBridge,
   onExecuteApp,
   currentPlatform,
@@ -208,3 +208,5 @@ export const PlatformDock: React.FC<PlatformDockProps> = ({
     </div>
   );
 };
+
+export const PlatformDock = React.memo(PlatformDockComponent);

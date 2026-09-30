@@ -32,7 +32,7 @@ interface MotionParticle {
   pulseSpeed: number;
 }
 
-export const JarvisLiveWallpaper: React.FC<JarvisLiveWallpaperProps> = ({
+const JarvisLiveWallpaperComponent: React.FC<JarvisLiveWallpaperProps> = ({
   audioLevel = 0,
   isLiveActive = false,
 }) => {
@@ -59,13 +59,13 @@ export const JarvisLiveWallpaper: React.FC<JarvisLiveWallpaperProps> = ({
     let animationFrameId: number;
     let width = window.innerWidth;
     let height = window.innerHeight;
-    let dpr = Math.min(window.devicePixelRatio || 1, 2);
+    let dpr = Math.min(window.devicePixelRatio || 1, 1.25);
 
     const resize = () => {
       if (!canvas) return;
       width = window.innerWidth;
       height = window.innerHeight;
-      dpr = Math.min(window.devicePixelRatio || 1, 2);
+      dpr = Math.min(window.devicePixelRatio || 1, 1.25);
       canvas.width = width * dpr;
       canvas.height = height * dpr;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -99,7 +99,7 @@ export const JarvisLiveWallpaper: React.FC<JarvisLiveWallpaperProps> = ({
     window.addEventListener('pointerdown', handlePointerDown);
 
     // Particle system with 360-degree randomized directional velocity vectors and shimmer controls
-    const particleCount = 65;
+    const particleCount = 38;
     const particles: MotionParticle[] = Array.from({ length: particleCount }).map(() => {
       const angle = Math.random() * Math.PI * 2;
       const speed = 0.12 + Math.random() * 0.48;
@@ -273,6 +273,7 @@ export const JarvisLiveWallpaper: React.FC<JarvisLiveWallpaperProps> = ({
         particles.forEach((p) => {
           const dx = p.x - r.x;
           const dy = p.y - r.y;
+          if (Math.abs(dx) > r.radius + 30 || Math.abs(dy) > r.radius + 30) return;
           const dist = Math.hypot(dx, dy);
           if (Math.abs(dist - r.radius) < 26) {
             const pushFactor = (1 - Math.abs(dist - r.radius) / 26) * waveAlpha * 2.4;
@@ -439,4 +440,6 @@ export const JarvisLiveWallpaper: React.FC<JarvisLiveWallpaperProps> = ({
     </div>
   );
 };
+
+export const JarvisLiveWallpaper = React.memo(JarvisLiveWallpaperComponent);
 

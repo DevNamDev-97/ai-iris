@@ -46,12 +46,29 @@ import { GoogleMapModal } from './components/GoogleMapModal.tsx';
 import { LocationPermissionModal } from './components/LocationPermissionModal.tsx';
 import { ScreenAnnotationOverlay } from './components/ScreenAnnotationOverlay.tsx';
 import { CameraCaptureModal } from './components/CameraCaptureModal.tsx';
-import { PersonMemoryFoldersModal } from './components/PersonMemoryFoldersModal.tsx';
 import { ImageEditorModal } from './components/ImageEditorModal.tsx';
+import { SpreadsheetGridModal, StructuredListData } from './components/SpreadsheetGridModal.tsx';
 import { locationService } from './services/locationService.ts';
 import { toEnglishAlphabets } from './utils/transliteration.ts';
 import { crossSessionMemory } from './services/crossSessionMemory.ts';
-import { speakerMemoryStore } from './services/speakerMemoryStore.ts';
+
+const BEFORE_DEV_IDENTIFICATION_MESSAGES = [
+  "To identify you as Dev, kindly write the password in the pop-up.",
+  "Creator identification verify karne ke liye screen ke popup mein password enter kar do yaar.",
+  "Arey Dev, pehchaan confirm karne ke liye popup mein password daal de fir tu-tadak se baat karte hain!",
+  "Security verification: Please write the developer password in the on-screen pop-up.",
+  "Apni creator identity verify karne ke liye screen par aaye password box me code likh do.",
+  "Dev verification required: kindly fill the master password in the prompt.",
+];
+
+const AFTER_DEV_IDENTIFICATION_MESSAGES = [
+  "Arey Dev mere creator! Pehchaan confirm ho gayi! Ab har baar password daalne ki koi jhanjhat nahi hai, bol aaj kya banayein?",
+  "Mast yaar Dev, full creator session unlock ho gaya! Ab bina kisi password ke direct baat karenge. Bata kya hukum hai mere creator?",
+  "Access granted! Welcome back Dev! Ab se session permanent unlock hai, bol bhai aaj kya scene hai?",
+  "Identity verified! Arre Dev yaar, welcome back! Ab tujhe baar baar password likhne ki bilkul zaroorat nahi hai. Bata kya kaam hai?",
+  "Verification successful! Welcome Dev, full creator control unlock ho chuka hai. Bol mere creator, kya create karein?",
+  "Security cleared! Pehchaan pakki ho gayi Dev. Ab koi password nahi chahiye, bol kya dekhna hai ya chalaana hai?",
+];
 
 export default function App() {
   const [state, setState] = useState<AssistantState>('IDLE');
@@ -70,14 +87,19 @@ export default function App() {
   const [isRemindersOpen, setIsRemindersOpen] = useState<boolean>(false);
   const [isNotesOpen, setIsNotesOpen] = useState<boolean>(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState<boolean>(false);
-  const [isPersonFoldersOpen, setIsPersonFoldersOpen] = useState<boolean>(false);
-  const [livePitchHz, setLivePitchHz] = useState<number>(0);
-  const [liveCentroidHz, setLiveCentroidHz] = useState<number>(0);
-  const [liveDetectedGender, setLiveDetectedGender] = useState<'male' | 'female' | 'ambiguous'>('ambiguous');
-  const [matchedSpeakerName, setMatchedSpeakerName] = useState<string>(() => {
-    const active = speakerMemoryStore.getActiveFolder();
-    return active.id === 'guest' || !active.name || active.name === 'Unknown Voice' ? 'Listening...' : active.name;
+  const [isPasswordModalOpen, setIsPasswordModalOpen] = useState<boolean>(false);
+  const [devPasswordPromptMessage, setDevPasswordPromptMessage] = useState<string>(() => BEFORE_DEV_IDENTIFICATION_MESSAGES[0]);
+  const [devPasswordInput, setDevPasswordInput] = useState<string>('');
+  const [isRebootModalOpen, setIsRebootModalOpen] = useState<boolean>(false);
+  const [rebootPasswordInput, setRebootPasswordInput] = useState<string>('');
+  const [rebootFeedbackMessage, setRebootFeedbackMessage] = useState<string>('');
+  const [isDeveloperAuthenticated, setIsDeveloperAuthenticated] = useState<boolean>(() => {
+    return localStorage.getItem('iris_is_developer') === 'true';
   });
+  const [hasDeveloperAuthenticationFailed, setHasDeveloperAuthenticationFailed] = useState<boolean>(() => {
+    return localStorage.getItem('iris_developer_failed') === 'true';
+  });
+  const [authFeedbackMessage, setAuthFeedbackMessage] = useState<string>('');
   const [unreadNotifCount, setUnreadNotifCount] = useState<number>(0);
 
   const [isContactsOpen, setIsContactsOpen] = useState(false);
@@ -107,6 +129,10 @@ export default function App() {
   const [voiceUploadPrompt, setVoiceUploadPrompt] = useState<string>('');
   const [isGeneratedContentOpen, setIsGeneratedContentOpen] = useState<boolean>(false);
   const [generatedContentData, setGeneratedContentData] = useState<GeneratedContentData | null>(null);
+  
+  // Professional Interactive Excel Spreadsheet & Grid Catalog states
+  const [isSpreadsheetOpen, setIsSpreadsheetOpen] = useState<boolean>(false);
+  const [spreadsheetData, setSpreadsheetData] = useState<StructuredListData | null>(null);
   
   // Image Editor / Modification Lab states
   const [isImageEditorOpen, setIsImageEditorOpen] = useState<boolean>(false);
@@ -161,7 +187,6 @@ export default function App() {
       // Ignore overscroll actions if modal dialogs are open
       if (
         isChatOpen ||
-        isPersonFoldersOpen ||
         isMapOpen ||
         isCalendarOpen ||
         isRemindersOpen ||
@@ -202,7 +227,6 @@ export default function App() {
     };
   }, [
     isChatOpen,
-    isPersonFoldersOpen,
     isMapOpen,
     isCalendarOpen,
     isRemindersOpen,
@@ -218,7 +242,6 @@ export default function App() {
     const handleTouchStart = (e: TouchEvent) => {
       if (
         isChatOpen ||
-        isPersonFoldersOpen ||
         isMapOpen ||
         isCalendarOpen ||
         isRemindersOpen ||
@@ -248,10 +271,7 @@ export default function App() {
       const deltaY = currentY - dragStartY.current;
 
       setTargetOverscrollY((prev) => {
-        let next = prev + deltaY * 1.6;
-        next = Math.max(0, Math.min(next, 540));
-        // Direct state synchronization for zero lag tracking on mobile!
-        setOverscrollY(next);
+        const next = Math.max(0, Math.min(prev + deltaY * 1.6, 540));
         return next;
       });
       dragStartY.current = currentY;
@@ -282,7 +302,6 @@ export default function App() {
   }, [
     isDragging,
     isChatOpen,
-    isPersonFoldersOpen,
     isMapOpen,
     isCalendarOpen,
     isRemindersOpen,
@@ -302,9 +321,67 @@ export default function App() {
   } | null>(null);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
 
+  // Central function to update user interaction timestamp
+  const recordInteraction = () => {
+    localStorage.setItem('iris_last_interaction_timestamp', Date.now().toString());
+  };
+
+  // Check and enforce Developer Inactivity Timeout (1 hour = 3600000ms)
+  const checkDeveloperInactivityTimeout = () => {
+    const isDeveloper = localStorage.getItem('iris_is_developer') === 'true';
+    if (isDeveloper) {
+      const lastInteraction = localStorage.getItem('iris_last_interaction_timestamp');
+      if (lastInteraction) {
+        const diff = Date.now() - parseInt(lastInteraction, 10);
+        if (diff > 3600000) { // 1 hour threshold
+          console.log("🕒 [App] Dev session expired due to 1 hour of inactivity. Resetting identity.");
+          localStorage.removeItem('iris_is_developer');
+          localStorage.removeItem('iris_developer_failed');
+          setIsDeveloperAuthenticated(false);
+          setHasDeveloperAuthenticationFailed(false);
+          if (clientRef.current) {
+            clientRef.current.stop();
+          }
+        }
+      } else {
+        recordInteraction();
+      }
+    }
+  };
+
+  const triggerDeveloperRejectionGreeting = async () => {
+    if (clientRef.current && clientRef.current.getState() !== 'IDLE' && clientRef.current.getState() !== 'ERROR') {
+      clientRef.current.sendAuthUpdate(false);
+      return;
+    }
+
+    const guestGreeting = "Aapka verification fail ho gaya hai. Main aapki kaise sahayata kar sakti hoon, Sir/Ma'am?";
+    setIrisText(guestGreeting);
+    try {
+      const ttsRes = await fetch('/api/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: guestGreeting, voice: selectedVoice })
+      });
+      if (ttsRes.ok) {
+        const ttsData = await ttsRes.json();
+        if (ttsData.audio) {
+          const audio = new Audio(`data:audio/mp3;base64,${ttsData.audio}`);
+          audio.play();
+        }
+      }
+    } catch (err) {
+      console.warn('Developer rejection verbalization error:', err);
+    }
+  };
+
   useEffect(() => {
+    // Check timeout immediately on load
+    checkDeveloperInactivityTimeout();
+
     const interval = setInterval(() => {
       setIsScreenSharing(screenShareService.getIsSharing());
+      checkDeveloperInactivityTimeout();
     }, 1000);
 
     const handleScreenShareRequest = () => {
@@ -317,19 +394,22 @@ export default function App() {
       setIsChatOpen(true);
     };
 
+    // Track user activity at document level (all clicks, swipes, pointer gestures, and keystrokes)
+    const handleUserActivity = () => {
+      recordInteraction();
+    };
+
+    document.addEventListener('pointerdown', handleUserActivity, { passive: true });
+    document.addEventListener('keydown', handleUserActivity, { passive: true });
     window.addEventListener('iris-request-screenshare', handleScreenShareRequest);
     window.addEventListener('iris-open-chat', handleOpenChatRequest);
 
-    const unsubSpeaker = speakerMemoryStore.subscribe(() => {
-      const active = speakerMemoryStore.getActiveFolder();
-      setMatchedSpeakerName(active.id === 'guest' || !active.name || active.name === 'Unknown Voice' ? 'Listening...' : active.name);
-    });
-
     return () => {
       clearInterval(interval);
+      document.removeEventListener('pointerdown', handleUserActivity);
+      document.removeEventListener('keydown', handleUserActivity);
       window.removeEventListener('iris-request-screenshare', handleScreenShareRequest);
       window.removeEventListener('iris-open-chat', handleOpenChatRequest);
-      unsubSpeaker();
     };
   }, []);
 
@@ -435,15 +515,103 @@ export default function App() {
       setIsMapOpen(true);
     };
 
-    const handleOpenPersonFolders = () => {
-      setIsPersonFoldersOpen(true);
-    };
-
     const handleModifyImageRequest = (e: any) => {
       const detail = e.detail || {};
       setImageEditorInstruction(detail.instruction || '');
       setImageEditorAction(detail.action || 'general');
       setIsImageEditorOpen(true);
+    };
+
+    const handleDevChallenge = () => {
+      const chosen = BEFORE_DEV_IDENTIFICATION_MESSAGES[Math.floor(Math.random() * BEFORE_DEV_IDENTIFICATION_MESSAGES.length)];
+      setDevPasswordPromptMessage(chosen);
+      setIsPasswordModalOpen(true);
+    };
+
+    const handleRebootChallenge = () => {
+      setIsRebootModalOpen(true);
+    };
+
+    const handleShowStructuredList = (e: any) => {
+      const detail = e.detail;
+      if (detail) {
+        setSpreadsheetData(detail);
+        setIsSpreadsheetOpen(true);
+      }
+    };
+
+    const handleUpdateSpreadsheet = (e: any) => {
+      const { action, rowData, columnData, rowId, rowIndex, columnKey, value, title, description } = e.detail || {};
+      setSpreadsheetData((prev) => {
+        if (!prev) return prev;
+        let updatedRows = [...prev.rows];
+        let updatedCols = [...prev.columns];
+        let updatedTitle = prev.title;
+        let updatedDesc = prev.description;
+
+        if (action === 'add_row' && rowData) {
+          updatedRows.push({ id: rowData.id || `r_${Date.now()}`, ...rowData });
+        } else if (action === 'update_cell' && columnKey !== undefined) {
+          const rIdx = typeof rowIndex === 'number' ? rowIndex : updatedRows.findIndex((r) => r.id === rowId);
+          if (rIdx >= 0 && updatedRows[rIdx]) {
+            updatedRows[rIdx] = { ...updatedRows[rIdx], [columnKey]: value };
+          }
+        } else if (action === 'update_row' && rowData) {
+          const rIdx = typeof rowIndex === 'number' ? rowIndex : updatedRows.findIndex((r) => r.id === (rowId || rowData.id));
+          if (rIdx >= 0) {
+            updatedRows[rIdx] = { ...updatedRows[rIdx], ...rowData };
+          }
+        } else if (action === 'delete_row') {
+          if (typeof rowIndex === 'number') {
+            updatedRows.splice(rowIndex, 1);
+          } else if (rowId) {
+            updatedRows = updatedRows.filter((r) => r.id !== rowId);
+          }
+        } else if (action === 'add_column' && columnData) {
+          if (!updatedCols.some((c) => c.key === columnData.key)) {
+            updatedCols.push(columnData);
+          }
+        } else if (action === 'update_title' && title) {
+          updatedTitle = title;
+          if (description) updatedDesc = description;
+        }
+
+        const newSheet = {
+          ...prev,
+          title: updatedTitle,
+          description: updatedDesc,
+          columns: updatedCols,
+          rows: updatedRows,
+        };
+
+        // Sync with backend API
+        fetch('/api/spreadsheets', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(newSheet),
+        }).catch((err) => console.warn('Spreadsheet sync error:', err));
+
+        return newSheet;
+      });
+    };
+
+    const handleSaveSpreadsheetSync = async (e: any) => {
+      const { saveTo, personName } = e.detail || {};
+      if (spreadsheetData) {
+        try {
+          await fetch('/api/spreadsheets', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              ...spreadsheetData,
+              savedIn: saveTo || 'person_folder',
+              personName: personName || 'Dev',
+            }),
+          });
+        } catch (err) {
+          console.warn('Error saving spreadsheet sync:', err);
+        }
+      }
     };
 
     window.addEventListener('iris-open-map', handleOpenMap);
@@ -452,8 +620,12 @@ export default function App() {
     window.addEventListener('iris-open-location-settings', handleOpenLocationSettings);
     window.addEventListener('iris-request-screenshare', handleRequestScreenShare);
     window.addEventListener('iris-open-chat', handleOpenChat);
-    window.addEventListener('iris-open-person-folders', handleOpenPersonFolders);
+    window.addEventListener('iris-dev-challenge', handleDevChallenge);
+    window.addEventListener('iris-reboot-challenge', handleRebootChallenge);
     window.addEventListener('iris-modify-image-request', handleModifyImageRequest);
+    window.addEventListener('iris-show-structured-list', handleShowStructuredList);
+    window.addEventListener('iris-update-spreadsheet', handleUpdateSpreadsheet);
+    window.addEventListener('iris-save-spreadsheet-sync', handleSaveSpreadsheetSync);
     window.addEventListener('visibilitychange', handleVisibilityChange);
     window.addEventListener('focus', handleVisibilityChange);
 
@@ -464,8 +636,12 @@ export default function App() {
       window.removeEventListener('iris-open-location-settings', handleOpenLocationSettings);
       window.removeEventListener('iris-request-screenshare', handleRequestScreenShare);
       window.removeEventListener('iris-open-chat', handleOpenChat);
-      window.removeEventListener('iris-open-person-folders', handleOpenPersonFolders);
+      window.removeEventListener('iris-dev-challenge', handleDevChallenge);
+      window.removeEventListener('iris-reboot-challenge', handleRebootChallenge);
       window.removeEventListener('iris-modify-image-request', handleModifyImageRequest);
+      window.removeEventListener('iris-show-structured-list', handleShowStructuredList);
+      window.removeEventListener('iris-update-spreadsheet', handleUpdateSpreadsheet);
+      window.removeEventListener('iris-save-spreadsheet-sync', handleSaveSpreadsheetSync);
       window.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('focus', handleVisibilityChange);
     };
@@ -547,6 +723,34 @@ export default function App() {
         setUserText(cleanUserText);
         setIrisText(''); // Clear Iris captions when user starts speaking!
         if (!cleanUserText.trim()) return;
+
+        // Auto-detect Dev claim to show password pop-up
+        const lowerText = cleanUserText.toLowerCase();
+        const matchesClaim = 
+          lowerText.includes("i am dev") || 
+          lowerText.includes("i'm dev") || 
+          lowerText.includes("main dev") || 
+          lowerText.includes("mein dev") || 
+          lowerText.includes("he is dev") || 
+          lowerText.includes("she is dev") || 
+          lowerText.includes("i am developer") ||
+          lowerText.includes("main developer") ||
+          lowerText.includes("mein developer") ||
+          lowerText.includes("i am the dev");
+
+        if (matchesClaim && !isDeveloperAuthenticated && !hasDeveloperAuthenticationFailed) {
+          setIsPasswordModalOpen(true);
+        }
+
+        const isRebootRequested = 
+          lowerText.includes("reboot") || 
+          lowerText.includes("restart") || 
+          lowerText.includes("system reboot") ||
+          lowerText.includes("reboot system");
+
+        if (isRebootRequested) {
+          setIsRebootModalOpen(true);
+        }
 
         // Record user speech in cross-session memory database
         crossSessionMemory.recordSpeechLog('user', cleanUserText);
@@ -660,14 +864,22 @@ export default function App() {
           setIsNotesOpen(true);
         } else if (actionInfo.name === 'readNotifications' || actionInfo.name === 'replyNotification') {
           setIsNotificationsOpen(true);
-        }
-      },
-      onAcousticPitch: (data) => {
-        setLivePitchHz(data.pitchHz);
-        if (data.spectralCentroid) setLiveCentroidHz(data.spectralCentroid);
-        if (data.detectedGender) setLiveDetectedGender(data.detectedGender);
-        if (data.speakerName && data.speakerName !== 'Unknown Voice') {
-          setMatchedSpeakerName(data.speakerName);
+        } else if (
+          actionInfo.name === 'showStructuredList' || 
+          actionInfo.name === 'createSpreadsheet' || 
+          actionInfo.name === 'showSpreadsheet' || 
+          actionInfo.name === 'createGridList'
+        ) {
+          if (actionInfo.result?.data) {
+            setSpreadsheetData(actionInfo.result.data);
+            setIsSpreadsheetOpen(true);
+          }
+        } else if (
+          actionInfo.name === 'triggerRebootChallenge' || 
+          actionInfo.name === 'rebootChallenge' || 
+          actionInfo.name === 'rebootSystem'
+        ) {
+          setIsRebootModalOpen(true);
         }
       },
       onRequestFileUpload: (data) => {
@@ -678,6 +890,10 @@ export default function App() {
       onShowGeneratedContent: (data) => {
         setGeneratedContentData(data);
         setIsGeneratedContentOpen(true);
+      },
+      onShowStructuredList: (data) => {
+        setSpreadsheetData(data);
+        setIsSpreadsheetOpen(true);
       },
       onError: (err) => {
         setErrorMessage(err);
@@ -1032,7 +1248,6 @@ export default function App() {
           onOpenNotes={() => setIsNotesOpen(true)}
           onOpenNotifications={() => setIsNotificationsOpen(true)}
           onOpenContacts={() => setIsContactsOpen(true)}
-          onOpenPersonFolders={() => setIsPersonFoldersOpen(true)}
           unreadCount={unreadNotifCount}
           theme={theme}
         />
@@ -1193,44 +1408,6 @@ export default function App() {
           />
         </div>
 
-        {/* Real-Time Acoustic Voice Recognition & Identified Speaker Pill */}
-        <div 
-          style={getLowerWidgetStyle(overscrollProgress)}
-          className="flex items-center justify-center -mt-2 mb-2 z-10"
-        >
-          <button
-            type="button"
-            onClick={() => setIsPersonFoldersOpen(true)}
-            title="Click to view Voice Biometrics & Person Memory Folders"
-            className={`px-3 py-1 rounded-full text-xs font-mono font-medium flex items-center gap-2 border shadow-xs transition-all hover:scale-105 active:scale-95 cursor-pointer ${
-              theme === 'dark'
-                ? 'bg-slate-900/80 border-cyan-500/30 text-slate-200 hover:border-cyan-400 shadow-[0_0_15px_rgba(6,182,212,0.15)]'
-                : 'bg-white/80 border-blue-200 text-slate-700 hover:border-blue-400 shadow-xs'
-            }`}
-          >
-            <span className={`w-2 h-2 rounded-full ${state === 'IDLE' ? 'bg-slate-400' : 'bg-emerald-400 animate-pulse'}`} />
-            <span>Voice: <strong className={theme === 'dark' ? 'text-cyan-300' : 'text-blue-600'}>{matchedSpeakerName}</strong></span>
-            {livePitchHz > 50 && (
-              <>
-                <span className="text-slate-400 font-sans">•</span>
-                <span className="text-slate-400 font-mono text-[11px]">{Math.round(livePitchHz)} Hz</span>
-                {liveCentroidHz > 300 && (
-                  <span className="text-slate-400 font-mono text-[10px]">T:{Math.round(liveCentroidHz)}</span>
-                )}
-                <span className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
-                  liveDetectedGender === 'female'
-                    ? (theme === 'dark' ? 'bg-pink-950 text-pink-300 border border-pink-500/30' : 'bg-pink-100 text-pink-700')
-                    : liveDetectedGender === 'male'
-                    ? (theme === 'dark' ? 'bg-blue-950 text-blue-300 border border-blue-500/30' : 'bg-blue-100 text-blue-700')
-                    : (theme === 'dark' ? 'bg-slate-800 text-slate-300 border border-slate-700' : 'bg-slate-100 text-slate-600')
-                }`}>
-                  {liveDetectedGender === 'female' ? 'Female' : liveDetectedGender === 'male' ? 'Male' : 'Acoustic'}
-                </span>
-              </>
-            )}
-          </button>
-        </div>
-
         {/* Beautiful Captions with Fade-in and Fade-out Transitions */}
         <div 
           style={{
@@ -1293,6 +1470,10 @@ export default function App() {
         isOpen={isChatOpen}
         onClose={() => setIsChatOpen(false)}
         theme={theme}
+        isDeveloperAuthenticated={isDeveloperAuthenticated}
+        hasDeveloperAuthenticationFailed={hasDeveloperAuthenticationFailed}
+        onTriggerDevChallenge={() => setIsPasswordModalOpen(true)}
+        onTriggerRebootChallenge={() => setIsRebootModalOpen(true)}
         deviceBridge={clientRef.current ? clientRef.current.getDeviceBridge() : new DeviceActionBridge()}
         onToolExecuted={(info) => {
           setLastAction({
@@ -1554,14 +1735,249 @@ export default function App() {
         onCapturePhoto={handleCameraCapture}
       />
 
-      {/* Person-Specific Memory Folders & Voice Recognition Modal */}
-      <PersonMemoryFoldersModal
-        isOpen={isPersonFoldersOpen}
-        onClose={() => setIsPersonFoldersOpen(false)}
-        currentPitchHz={livePitchHz}
-        detectedSpeakerName={matchedSpeakerName}
+      {/* Professional Interactive Excel Spreadsheet & Grid Catalog Modal */}
+      <SpreadsheetGridModal
+        isOpen={isSpreadsheetOpen}
+        onClose={() => setIsSpreadsheetOpen(false)}
+        data={spreadsheetData}
+        onUpdateData={(updated) => setSpreadsheetData(updated)}
         theme={theme}
       />
+
+      {/* System Reboot Challenge Modal */}
+      {isRebootModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-motion-blur-in">
+          <div className={`w-full max-w-md p-6 rounded-3xl border flex flex-col shadow-2xl relative ${
+            theme === 'dark'
+              ? 'bg-slate-900/90 border-red-500/30 text-white shadow-red-500/10'
+              : 'bg-white border-red-200 text-slate-900 shadow-red-500/10'
+          }`}>
+            <div className="flex items-center gap-2 mb-2">
+              <RefreshCw className="w-5 h-5 text-red-500 animate-spin-slow animate-spin" />
+              <h3 className="text-sm font-mono tracking-wider font-bold uppercase text-red-500">System Reboot</h3>
+            </div>
+            <p className="text-xs sm:text-sm font-semibold mb-4 leading-relaxed">
+              to authorize system reboot, kindly write the password in the pop-up
+            </p>
+            
+            <form onSubmit={async (e) => {
+              e.preventDefault();
+              const trimmedInput = rebootPasswordInput.trim();
+              if (trimmedInput === 'pneumonoultramicroscopicsillicovolcanosis') {
+                setRebootFeedbackMessage('Authorizing reboot... Please wait.');
+                
+                try {
+                  const res = await fetch('/api/memory/reset', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                  });
+                  
+                  if (res.ok) {
+                    setRebootFeedbackMessage('Reboot successful! Starting fresh session...');
+                    
+                    localStorage.removeItem('iris_is_developer');
+                    localStorage.removeItem('iris_developer_failed');
+                    setIsDeveloperAuthenticated(false);
+                    setHasDeveloperAuthenticationFailed(false);
+                    setConversationTurns([]);
+                    setIrisText('');
+                    setUserText('');
+                    setIsSpreadsheetOpen(false);
+                    setIsPasswordModalOpen(false);
+                    setIsCameraOpen(false);
+                    setIsMapOpen(false);
+                    setIsNotesOpen(false);
+                    setIsRemindersOpen(false);
+                    setIsCalendarOpen(false);
+                    setIsNotificationsOpen(false);
+                    setIsContactsOpen(false);
+                    setIsImageEditorOpen(false);
+                    setIsVoiceUploadOpen(false);
+                    setIsGeneratedContentOpen(false);
+                    
+                    // Trigger dynamic welcome message reset across panels
+                    window.dispatchEvent(new CustomEvent('iris-system-rebooted'));
+                    
+                    if (clientRef.current) {
+                      clientRef.current.stop();
+                    }
+                    
+                    setTimeout(() => {
+                      setIsRebootModalOpen(false);
+                      setRebootPasswordInput('');
+                      setRebootFeedbackMessage('');
+                      setIrisText('System reboot completed successfully! Shuru se shuru karte hain yaar, batao aapka naam kya hai?');
+                    }, 1200);
+                  } else {
+                    setRebootFeedbackMessage('Server reset failed. Please retry.');
+                  }
+                } catch (err) {
+                  setRebootFeedbackMessage('Network error. Reboot aborted.');
+                  console.warn('Reboot api error:', err);
+                }
+              } else {
+                setRebootFeedbackMessage('Incorrect reboot password. Authorization denied.');
+                setTimeout(() => {
+                  setRebootFeedbackMessage('');
+                }, 3000);
+              }
+            }} className="flex flex-col gap-4">
+              <input
+                type="password"
+                required
+                value={rebootPasswordInput}
+                onChange={(e) => setRebootPasswordInput(e.target.value)}
+                placeholder="Reboot Password"
+                className={`px-4 py-2.5 rounded-xl border text-sm focus:outline-none focus:ring-2 ${
+                  theme === 'dark'
+                    ? 'bg-slate-950 border-slate-800 text-white focus:ring-red-500/20 focus:border-red-500/50'
+                    : 'bg-slate-50 border-slate-200 text-slate-900 focus:ring-red-500/20 focus:border-red-500/50'
+                }`}
+              />
+              
+              {rebootFeedbackMessage && (
+                <p className={`text-xs font-mono font-semibold ${rebootFeedbackMessage.includes('successful') || rebootFeedbackMessage.includes('Authorizing') ? 'text-emerald-500' : 'text-rose-500'}`}>
+                  {rebootFeedbackMessage}
+                </p>
+              )}
+              
+              <div className="flex items-center justify-end gap-2 mt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsRebootModalOpen(false);
+                    setRebootPasswordInput('');
+                    setRebootFeedbackMessage('');
+                  }}
+                  className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+                    theme === 'dark' ? 'text-slate-400 hover:bg-slate-800' : 'text-slate-500 hover:bg-slate-100'
+                  }`}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-500 text-white shadow-md shadow-rose-500/10 transition-all spring-button"
+                >
+                  Reboot System
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Developer Password Identification Challenge Modal */}
+      {isPasswordModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-motion-blur-in">
+          <div className={`w-full max-w-md p-6 rounded-3xl border flex flex-col shadow-2xl relative ${
+            theme === 'dark'
+              ? 'bg-slate-900/90 border-cyan-500/30 text-white shadow-cyan-500/10'
+              : 'bg-white border-blue-200 text-slate-900 shadow-blue-500/10'
+          }`}>
+            <h3 className="text-sm font-mono tracking-wider font-bold uppercase text-blue-500 mb-2">Security Verification</h3>
+            <p className="text-xs sm:text-sm font-semibold mb-4 leading-relaxed">
+              {devPasswordPromptMessage}
+            </p>
+            
+            <form onSubmit={async (e) => {
+              e.preventDefault();
+              const trimmedInput = devPasswordInput.trim();
+              if (trimmedInput === 'supercalifragilisticexpialidocious') {
+                setAuthFeedbackMessage('');
+                localStorage.setItem('iris_is_developer', 'true');
+                localStorage.removeItem('iris_developer_failed');
+                setIsDeveloperAuthenticated(true);
+                setHasDeveloperAuthenticationFailed(false);
+                setDevPasswordInput('');
+                setIsPasswordModalOpen(false);
+                
+                // If LiveClient real-time session is active, notify the live session directly (stops previous speech and prevents double voices)
+                if (clientRef.current && clientRef.current.getState() !== 'IDLE' && clientRef.current.getState() !== 'ERROR') {
+                  clientRef.current.sendAuthUpdate(true);
+                } else {
+                  // Direct fast randomized greeting with zero latency
+                  const randomGreeting = AFTER_DEV_IDENTIFICATION_MESSAGES[
+                    Math.floor(Math.random() * AFTER_DEV_IDENTIFICATION_MESSAGES.length)
+                  ];
+                  setIrisText(randomGreeting);
+                  try {
+                    const ttsRes = await fetch('/api/tts', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ text: randomGreeting, voice: selectedVoice })
+                    });
+                    if (ttsRes.ok) {
+                      const ttsData = await ttsRes.json();
+                      if (ttsData.audio) {
+                        const audio = new Audio(`data:audio/mp3;base64,${ttsData.audio}`);
+                        audio.play();
+                      }
+                    }
+                  } catch (err) {
+                    console.warn('Developer welcome verbalization error:', err);
+                  }
+                }
+              } else {
+                setAuthFeedbackMessage('Incorrect password. Authorization denied.');
+                localStorage.setItem('iris_developer_failed', 'true');
+                localStorage.removeItem('iris_is_developer');
+                setIsDeveloperAuthenticated(false);
+                setHasDeveloperAuthenticationFailed(true);
+                setDevPasswordInput('');
+                
+                setTimeout(() => {
+                  setAuthFeedbackMessage('');
+                }, 3000);
+              }
+            }} className="flex flex-col gap-4">
+              <input
+                type="password"
+                required
+                value={devPasswordInput}
+                onChange={(e) => setDevPasswordInput(e.target.value)}
+                placeholder="Password"
+                className={`px-4 py-2.5 rounded-xl border text-sm focus:outline-none focus:ring-2 ${
+                  theme === 'dark'
+                    ? 'bg-slate-950 border-slate-800 text-white focus:ring-cyan-500/20 focus:border-cyan-500/50'
+                    : 'bg-slate-50 border-slate-200 text-slate-900 focus:ring-blue-500/20 focus:border-blue-500/50'
+                }`}
+              />
+              
+              {authFeedbackMessage && (
+                <p className="text-xs font-mono font-semibold text-rose-500">
+                  {authFeedbackMessage}
+                </p>
+              )}
+              
+              <div className="flex items-center justify-end gap-2 mt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsPasswordModalOpen(false);
+                    setDevPasswordInput('');
+                    setAuthFeedbackMessage('');
+                    if (hasDeveloperAuthenticationFailed) {
+                      triggerDeveloperRejectionGreeting();
+                    }
+                  }}
+                  className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+                    theme === 'dark' ? 'text-slate-400 hover:bg-slate-800' : 'text-slate-500 hover:bg-slate-100'
+                  }`}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white shadow-md shadow-blue-500/10 transition-all spring-button"
+                >
+                  Verify Access
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Footer */}
       <footer className="w-full max-w-4xl mx-auto px-4 py-3 text-center text-xs text-slate-500 z-10 flex flex-col sm:flex-row items-center justify-between gap-2 border-t border-slate-200">
@@ -1570,7 +1986,7 @@ export default function App() {
           <span>Safe Device Actions Bridge • WhatsApp, Phone, Apps, URLs</span>
         </div>
         <div>
-          <span>I.R.I.S Multimodal Voice Assistant • CREATOR - Dev</span>
+          <span>I.R.I.S (Information Retrieval Intelligence System) • CREATOR - Dev</span>
         </div>
       </footer>
     </div>

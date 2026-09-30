@@ -2158,6 +2158,32 @@ export class DeviceActionBridge {
       case 'sendSMS':
         return this.sendSMS(args.recipient || args.phoneNumber, args.message);
 
+      case 'triggerDevChallenge':
+      case 'verifyDevIdentity':
+      case 'devChallenge':
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('iris-dev-challenge'));
+        }
+        return {
+          success: true,
+          action: 'triggerDevChallenge',
+          message: 'Developer identity verification challenge modal opened on user screen.',
+          data: { open: true },
+        };
+
+      case 'triggerRebootChallenge':
+      case 'rebootChallenge':
+      case 'rebootSystem':
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('iris-reboot-challenge'));
+        }
+        return {
+          success: true,
+          action: 'triggerRebootChallenge',
+          message: 'System Reboot password authorization modal opened on user screen.',
+          data: { open: true },
+        };
+
       case 'requestFileUpload':
         return {
           success: true,
@@ -2277,6 +2303,40 @@ export class DeviceActionBridge {
             data: null,
           };
         }
+
+      case 'showStructuredList':
+      case 'createSpreadsheet':
+      case 'showSpreadsheet':
+      case 'createGridList':
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(
+            new CustomEvent('iris-show-structured-list', {
+              detail: {
+                title: args.title || 'Structured List',
+                description: args.description || '',
+                category: args.category || 'general',
+                columns: args.columns || [
+                  { key: 'item', label: 'Item / Task' },
+                  { key: 'category', label: 'Category' },
+                  { key: 'status', label: 'Status', type: 'status' }
+                ],
+                rows: args.rows || [],
+              },
+            })
+          );
+        }
+        return {
+          success: true,
+          action: 'showStructuredList',
+          message: `Professional interactive Excel Sheet & Grid Catalog opened on user screen for "${args.title || 'List'}".`,
+          data: {
+            title: args.title || 'Structured List',
+            description: args.description || '',
+            category: args.category || 'general',
+            columns: args.columns || [],
+            rows: args.rows || [],
+          },
+        };
 
       case 'showGeneratedContent':
         return {
@@ -2457,6 +2517,21 @@ export class DeviceActionBridge {
       case 'modifyImage':
       case 'editImage':
         return this.modifyImage(args.instruction, args.action);
+
+      case 'showStructuredList':
+      case 'createSpreadsheet':
+      case 'showSpreadsheet':
+      case 'createGridList':
+        return this.showStructuredList(args as any);
+
+      case 'saveSpreadsheet':
+        return this.saveSpreadsheet(args.saveTo, args.title, args.personName);
+
+      case 'editSpreadsheet':
+        return this.editSpreadsheet(args as any);
+
+      case 'retrieveSpreadsheet':
+        return this.retrieveSpreadsheet(args.query);
 
       default:
         console.warn(`⚠️ [DeviceActionBridge] Unknown or unauthorized tool: ${name}`);
@@ -3616,6 +3691,167 @@ export class DeviceActionBridge {
         action: action || 'general',
         status: 'opened'
       }
+    };
+  }
+
+  /**
+   * Professional Structured List & Interactive Excel Spreadsheet Generator
+   */
+  showStructuredList(payload: {
+    title: string;
+    description?: string;
+    category?: string;
+    columns: any[];
+    rows: any[];
+  }): ToolExecutionResult {
+    console.log(`📊 [DeviceActionBridge] showStructuredList: "${payload.title}" (${payload.rows?.length || 0} rows)`);
+
+    const structuredData = {
+      title: payload.title || 'Structured List',
+      description: payload.description || 'Interactive professional spreadsheet & catalog',
+      category: payload.category || 'general',
+      columns: Array.isArray(payload.columns) ? payload.columns : [{ key: 'item', label: 'Item' }],
+      rows: Array.isArray(payload.rows)
+        ? payload.rows.map((r, i) => ({ id: r.id || `row-${i}`, ...r }))
+        : [],
+    };
+
+    // Broadcast event to open SpreadsheetGridModal immediately on user screen
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('iris-show-structured-list', {
+          detail: structuredData,
+        })
+      );
+    }
+
+    return {
+      success: true,
+      action: 'showStructuredList',
+      message: `Generated professional interactive spreadsheet: "${structuredData.title}" with ${structuredData.rows.length} rows and ${structuredData.columns.length} columns.`,
+      data: structuredData,
+    };
+  }
+
+  /**
+   * Saves active spreadsheet into speaking person's folder or 15-day Dump Box
+   */
+  async saveSpreadsheet(
+    saveTo: 'person_folder' | 'dump_box' | string,
+    title?: string,
+    personName?: string
+  ): Promise<ToolExecutionResult> {
+    console.log(`💾 [DeviceActionBridge] saveSpreadsheet: saveTo=${saveTo}, title=${title}`);
+
+    const activeFolder = speakerMemoryStore.getActiveFolder();
+    const targetPerson = personName || activeFolder?.name || 'Dev';
+    const isDump = saveTo === 'dump_box';
+
+    try {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent('iris-save-spreadsheet-sync', {
+            detail: { saveTo: isDump ? 'dump_box' : 'person_folder', personName: targetPerson, title },
+          })
+        );
+      }
+
+      return {
+        success: true,
+        action: 'saveSpreadsheet',
+        message: isDump
+          ? `Spreadsheet "${title || 'Active Sheet'}" successfully stored in 15-day temporary Dump Box.`
+          : `Spreadsheet "${title || 'Active Sheet'}" permanently archived in ${targetPerson}'s personal memory folder.`,
+        data: {
+          savedIn: isDump ? 'dump_box' : 'person_folder',
+          personName: targetPerson,
+          expiresInDays: isDump ? 15 : undefined,
+        },
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        action: 'saveSpreadsheet',
+        error: err?.message || 'Failed to save spreadsheet',
+      };
+    }
+  }
+
+  /**
+   * Instant On-The-Spot Edit for live spreadsheet
+   */
+  editSpreadsheet(args: {
+    action: 'add_row' | 'update_row' | 'update_cell' | 'delete_row' | 'update_title' | 'add_column' | string;
+    rowId?: string;
+    rowIndex?: number;
+    columnKey?: string;
+    value?: any;
+    rowData?: any;
+    columnData?: any;
+    title?: string;
+  }): ToolExecutionResult {
+    console.log(`✏️ [DeviceActionBridge] editSpreadsheet action: "${args.action}"`, args);
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('iris-update-spreadsheet', {
+          detail: args,
+        })
+      );
+    }
+
+    return {
+      success: true,
+      action: 'editSpreadsheet',
+      message: `Spreadsheet updated on the spot: ${args.action}.`,
+      data: args,
+    };
+  }
+
+  /**
+   * Retrieves a previously saved spreadsheet or list from memory
+   */
+  async retrieveSpreadsheet(query: string): Promise<ToolExecutionResult> {
+    console.log(`🔍 [DeviceActionBridge] retrieveSpreadsheet: "${query}"`);
+
+    try {
+      const res = await fetch('/api/spreadsheets');
+      if (res.ok) {
+        const data = await res.json();
+        const sheets: any[] = data.spreadsheets || [];
+        const qLow = query.toLowerCase();
+
+        const match = sheets.find(
+          (s) =>
+            s.title.toLowerCase().includes(qLow) ||
+            (s.description && s.description.toLowerCase().includes(qLow))
+        ) || sheets[0];
+
+        if (match) {
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(
+              new CustomEvent('iris-show-structured-list', {
+                detail: match,
+              })
+            );
+          }
+
+          return {
+            success: true,
+            action: 'retrieveSpreadsheet',
+            message: `Retrieved spreadsheet "${match.title}" (${match.savedIn === 'dump_box' ? '15-Day Dump Box' : `${match.personName || 'Personal'} Folder`}). Opened on screen.`,
+            data: match,
+          };
+        }
+      }
+    } catch (e) {
+      console.warn('retrieveSpreadsheet fetch error:', e);
+    }
+
+    return {
+      success: false,
+      action: 'retrieveSpreadsheet',
+      error: `Could not find any saved spreadsheet matching "${query}".`,
     };
   }
 }

@@ -78,76 +78,97 @@ interface ServerFileItem {
   lastAccessed: number;
 }
 
+interface ServerSpreadsheetColumn {
+  key: string;
+  label: string;
+  type?: 'text' | 'number' | 'currency' | 'status' | 'date' | 'tag' | 'checkbox' | string;
+  width?: string;
+}
+
+interface ServerSpreadsheetRow {
+  id?: string;
+  [key: string]: any;
+}
+
+interface ServerSpreadsheetItem {
+  id: string;
+  title: string;
+  description?: string;
+  category?: string;
+  columns: ServerSpreadsheetColumn[];
+  rows: ServerSpreadsheetRow[];
+  savedIn: 'person_folder' | 'dump_box';
+  personName?: string;
+  speakerFolderId?: string;
+  createdAt: number;
+  updatedAt: number;
+  expiresAt?: number; // For dump box (15 days: Date.now() + 15 * 86400000)
+}
+
+let serverSpreadsheets: ServerSpreadsheetItem[] = [];
+
+function syncSpreadsheetToDisk(sheet: ServerSpreadsheetItem) {
+  try {
+    const backendBase = path.join(__dirname, 'backend_folders');
+    let targetDir = '';
+    if (sheet.savedIn === 'person_folder') {
+      const folderName = sheet.personName || 'Dev';
+      targetDir = path.join(backendBase, folderName, 'spreadsheets');
+    } else {
+      targetDir = path.join(backendBase, 'Dump_Box', 'spreadsheets');
+    }
+    fs.mkdirSync(targetDir, { recursive: true });
+    const filePath = path.join(targetDir, `${sheet.id}.json`);
+    fs.writeFileSync(filePath, JSON.stringify(sheet, null, 2), 'utf-8');
+    console.log(`[Spreadsheet Disk] Saved "${sheet.title}" (${sheet.savedIn}) to ${filePath}`);
+  } catch (err) {
+    console.warn('⚠️ Non-fatal: Failed to save spreadsheet to disk:', err);
+  }
+}
+
+function purgeExpiredDumpBoxFiles() {
+  try {
+    const now = Date.now();
+    const initialCount = serverSpreadsheets.length;
+    serverSpreadsheets = serverSpreadsheets.filter((sheet) => {
+      if (sheet.savedIn === 'dump_box' && sheet.expiresAt && sheet.expiresAt < now) {
+        return false;
+      }
+      return true;
+    });
+
+    const dumpBoxDir = path.join(__dirname, 'backend_folders', 'Dump_Box', 'spreadsheets');
+    if (fs.existsSync(dumpBoxDir)) {
+      const files = fs.readdirSync(dumpBoxDir);
+      for (const file of files) {
+        if (file.endsWith('.json')) {
+          const p = path.join(dumpBoxDir, file);
+          try {
+            const raw = fs.readFileSync(p, 'utf-8');
+            const data = JSON.parse(raw);
+            if (data.expiresAt && data.expiresAt < now) {
+              fs.unlinkSync(p);
+              console.log(`[Dump Box Purge] Purged expired file (${file}) older than 15 days.`);
+            }
+          } catch (e) {
+            // Ignore parse errors
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('⚠️ Non-fatal: Error purging dump box files:', err);
+  }
+}
+
+// Run purge on start and every 6 hours
+purgeExpiredDumpBoxFiles();
+setInterval(purgeExpiredDumpBoxFiles, 1000 * 60 * 60 * 6);
+
 const serverMemoryDb = {
-  interactions: [
-    {
-      id: 'mem-seed-1',
-      timestamp: Date.now() - 1000 * 60 * 60 * 5,
-      role: 'user',
-      type: 'chat',
-      text: 'I just downloaded PDF 1 from the browser. It went into the Downloads folder in Google Files.',
-    },
-    {
-      id: 'mem-seed-2',
-      timestamp: Date.now() - 1000 * 60 * 60 * 5 + 1500,
-      role: 'iris',
-      type: 'chat',
-      text: 'Samajh gayi! Maine yaad rakh liya hai ki PDF 1 tere Google Files ke Downloads folder mein saved hai. Jab bhi chahiye ho, bas bol dena!',
-    },
-    {
-      id: 'mem-seed-3',
-      timestamp: Date.now() - 1000 * 60 * 60 * 2,
-      role: 'user',
-      type: 'speech_log',
-      text: 'Devansh Namdev (Dev) is my best friend and creator.',
-    },
-  ] as ServerMemoryItem[],
-  facts: [
-    {
-      id: 'fact-1',
-      key: 'Creator',
-      value: 'Dev is Iris\'s creator (remembered in memory database; state ONLY when explicitly asked).',
-      category: 'personal',
-      timestamp: Date.now() - 1000 * 60 * 60 * 24 * 7,
-    },
-    {
-      id: 'fact-2',
-      key: 'PDF 1 Location',
-      value: 'PDF 1 is saved in the Downloads folder inside Google Files (/storage/emulated/0/Download/PDF 1.pdf).',
-      category: 'file',
-      timestamp: Date.now() - 1000 * 60 * 60 * 5,
-    },
-  ] as ServerFactItem[],
-  files: [
-    {
-      id: 'file-pdf-1',
-      name: 'PDF 1',
-      originalName: 'PDF 1.pdf',
-      extension: 'pdf',
-      category: 'document',
-      lastKnownLocation: 'Downloads folder in Google Files',
-      folderPath: '/storage/emulated/0/Download/PDF 1.pdf',
-      appSource: 'Google Files (Files by Google)',
-      mimeType: 'application/pdf',
-      contentSnippet: 'Product Blueprint & Architecture Specifications for I.R.I.S. Assistant v3.5.',
-      sizeDescription: '2.4 MB',
-      lastAccessed: Date.now() - 1000 * 60 * 60 * 3,
-    },
-    {
-      id: 'file-project-specs',
-      name: 'Project Specs',
-      originalName: 'Project_Specs.pdf',
-      extension: 'pdf',
-      category: 'document',
-      lastKnownLocation: 'Documents folder in Google Drive',
-      folderPath: 'Google Drive/Documents/Project_Specs.pdf',
-      appSource: 'Google Drive',
-      mimeType: 'application/pdf',
-      contentSnippet: 'Complete technical documentation and API architecture diagrams.',
-      sizeDescription: '4.8 MB',
-      lastAccessed: Date.now() - 1000 * 60 * 60 * 24,
-    },
-  ] as ServerFileItem[],
+  interactions: [] as ServerMemoryItem[],
+  facts: [] as ServerFactItem[],
+  files: [] as ServerFileItem[],
 };
 
 // Memory Database Sync Endpoint
@@ -249,6 +270,28 @@ app.post('/api/memory/reset', (req, res) => {
 
     serverSpeakerFolders = [DEV_SERVER_FOLDER];
     serverActiveSpeakerId = 'person-dev';
+
+    // Physical backend disk folder cleanup on reboot
+    try {
+      const backendBase = path.join(__dirname, 'backend_folders');
+      if (fs.existsSync(backendBase)) {
+        fs.rmSync(backendBase, { recursive: true, force: true });
+        console.log('[Backend Folder] Cleaned all physical backend folders on reboot.');
+      }
+      // Re-create empty base
+      fs.mkdirSync(backendBase, { recursive: true });
+      // Create default Dev folder
+      const devPath = path.join(backendBase, 'Dev');
+      fs.mkdirSync(devPath, { recursive: true });
+      fs.writeFileSync(
+        path.join(devPath, 'profile_and_memories.json'),
+        JSON.stringify(DEV_SERVER_FOLDER, null, 2),
+        'utf-8'
+      );
+      console.log('[Backend Folder] Initialized default Dev creator profile on backend disk.');
+    } catch (diskErr) {
+      console.warn('⚠️ Non-fatal: Failed to clean physical folders on disk reboot:', diskErr);
+    }
 
     res.json({
       success: true,
@@ -387,12 +430,47 @@ app.post('/api/speaker/sync-all', (req, res) => {
     const { folders, activeSpeakerId } = req.body;
     if (Array.isArray(folders)) {
       serverSpeakerFolders = folders;
+
+      // Generate real physical directories and save memory files on backend disk
+      const backendBase = path.join(__dirname, 'backend_folders');
+      if (!fs.existsSync(backendBase)) {
+        fs.mkdirSync(backendBase, { recursive: true });
+      }
+
+      folders.forEach((folder: any) => {
+        if (folder && folder.name) {
+          const sanitizedName = folder.name.replace(/[^a-zA-Z0-9_-]/g, '_');
+          const folderPath = path.join(backendBase, sanitizedName);
+          if (!fs.existsSync(folderPath)) {
+            fs.mkdirSync(folderPath, { recursive: true });
+            console.log(`[Backend Folder] Generated directory for ${folder.name} at: ${folderPath}`);
+          }
+          
+          const profileData = {
+            id: folder.id,
+            name: folder.name,
+            gender: folder.gender,
+            grammaticalStyle: folder.grammaticalStyle,
+            relationship: folder.relationship,
+            memories: folder.memories || [],
+            lastSpokenAt: folder.lastSpokenAt || Date.now(),
+            createdAt: folder.createdAt || Date.now(),
+          };
+          
+          fs.writeFileSync(
+            path.join(folderPath, 'profile_and_memories.json'),
+            JSON.stringify(profileData, null, 2),
+            'utf-8'
+          );
+        }
+      });
     }
     if (activeSpeakerId) {
       serverActiveSpeakerId = activeSpeakerId;
     }
     res.json({ success: true, count: serverSpeakerFolders.length, activeSpeakerId: serverActiveSpeakerId });
   } catch (err: any) {
+    console.error('Error syncing speaker folders on backend disk:', err);
     res.status(500).json({ error: err?.message || 'Failed to sync speakers' });
   }
 });
@@ -408,6 +486,153 @@ app.get('/api/speaker/folders', (req, res) => {
 app.get('/api/config/maps-key', (req, res) => {
   const mapsKey = process.env.VITE_GOOGLE_MAPS_API_KEY || 'AIzaSyBd0UTFAPshyps6PSOM4wNZtpO4Vw5q_ZQ';
   res.json({ apiKey: mapsKey });
+});
+
+// ==================== SPREADSHEET & GRID MEMORY ENDPOINTS ====================
+
+// List all spreadsheets (person folders & 15-day dump box)
+app.get('/api/spreadsheets', (req, res) => {
+  purgeExpiredDumpBoxFiles();
+  const { folder, person } = req.query;
+  let filtered = [...serverSpreadsheets];
+
+  if (folder === 'dump_box') {
+    filtered = filtered.filter((s) => s.savedIn === 'dump_box');
+  } else if (folder === 'person_folder') {
+    filtered = filtered.filter((s) => s.savedIn === 'person_folder');
+    if (person) {
+      const pLow = String(person).toLowerCase();
+      filtered = filtered.filter((s) => (s.personName || '').toLowerCase().includes(pLow));
+    }
+  }
+
+  res.json({
+    success: true,
+    total: filtered.length,
+    spreadsheets: filtered,
+  });
+});
+
+// Get spreadsheet by ID
+app.get('/api/spreadsheets/:id', (req, res) => {
+  purgeExpiredDumpBoxFiles();
+  const sheet = serverSpreadsheets.find((s) => s.id === req.params.id);
+  if (!sheet) {
+    return res.status(404).json({ error: 'Spreadsheet not found' });
+  }
+  res.json({ success: true, spreadsheet: sheet });
+});
+
+// Save or Create Spreadsheet
+app.post('/api/spreadsheets', (req, res) => {
+  try {
+    const { title, description, category, columns, rows, savedIn, personName } = req.body;
+    if (!title || !columns || !rows) {
+      return res.status(400).json({ error: 'title, columns, and rows are required' });
+    }
+
+    const targetSave: 'person_folder' | 'dump_box' = savedIn === 'dump_box' ? 'dump_box' : 'person_folder';
+    const expiresAt = targetSave === 'dump_box' ? Date.now() + 15 * 24 * 60 * 60 * 1000 : undefined;
+    const activePerson = personName || 'Dev';
+
+    const newSheet: ServerSpreadsheetItem = {
+      id: req.body.id || `sheet_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      title,
+      description: description || '',
+      category: category || 'general',
+      columns: Array.isArray(columns) ? columns : [],
+      rows: Array.isArray(rows) ? rows.map((r: any, idx: number) => ({ id: r.id || `r_${idx}`, ...r })) : [],
+      savedIn: targetSave,
+      personName: activePerson,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      expiresAt,
+    };
+
+    const existingIdx = serverSpreadsheets.findIndex((s) => s.id === newSheet.id || s.title.toLowerCase() === title.toLowerCase());
+    if (existingIdx >= 0) {
+      serverSpreadsheets[existingIdx] = {
+        ...serverSpreadsheets[existingIdx],
+        ...newSheet,
+        id: serverSpreadsheets[existingIdx].id,
+        updatedAt: Date.now(),
+      };
+      syncSpreadsheetToDisk(serverSpreadsheets[existingIdx]);
+      return res.json({ success: true, spreadsheet: serverSpreadsheets[existingIdx], updated: true });
+    }
+
+    serverSpreadsheets.unshift(newSheet);
+    syncSpreadsheetToDisk(newSheet);
+
+    res.json({
+      success: true,
+      spreadsheet: newSheet,
+      message: targetSave === 'person_folder'
+        ? `Spreadsheet "${title}" permanently saved in ${activePerson}'s folder.`
+        : `Spreadsheet "${title}" stored in 15-day temporary Dump Box.`,
+    });
+  } catch (err: any) {
+    console.error('Error creating spreadsheet:', err);
+    res.status(500).json({ error: err?.message || 'Failed to save spreadsheet' });
+  }
+});
+
+// Instant On-The-Spot Edit Endpoint
+app.patch('/api/spreadsheets/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    const { action, rowData, columnData, rowId, rowIndex, columnKey, value, title, description } = req.body;
+
+    let sheet = serverSpreadsheets.find((s) => s.id === id);
+    if (!sheet && serverSpreadsheets.length > 0) {
+      sheet = serverSpreadsheets[0]; // fallback to most recent active sheet
+    }
+
+    if (!sheet) {
+      return res.status(404).json({ error: 'No active spreadsheet found to edit' });
+    }
+
+    if (action === 'add_row' && rowData) {
+      const newRow = { id: rowData.id || `r_${Date.now()}`, ...rowData };
+      sheet.rows.push(newRow);
+    } else if (action === 'update_cell' && columnKey !== undefined) {
+      const rIdx = typeof rowIndex === 'number' ? rowIndex : sheet.rows.findIndex((r) => r.id === rowId);
+      if (rIdx >= 0 && sheet.rows[rIdx]) {
+        sheet.rows[rIdx][columnKey] = value;
+      }
+    } else if (action === 'update_row' && rowData) {
+      const rIdx = typeof rowIndex === 'number' ? rowIndex : sheet.rows.findIndex((r) => r.id === (rowId || rowData.id));
+      if (rIdx >= 0) {
+        sheet.rows[rIdx] = { ...sheet.rows[rIdx], ...rowData };
+      }
+    } else if (action === 'delete_row') {
+      if (typeof rowIndex === 'number') {
+        sheet.rows.splice(rowIndex, 1);
+      } else if (rowId) {
+        sheet.rows = sheet.rows.filter((r) => r.id !== rowId);
+      }
+    } else if (action === 'add_column' && columnData) {
+      if (!sheet.columns.some((c) => c.key === columnData.key)) {
+        sheet.columns.push(columnData);
+      }
+    } else if (action === 'update_title' && title) {
+      sheet.title = title;
+      if (description) sheet.description = description;
+    }
+
+    sheet.updatedAt = Date.now();
+    syncSpreadsheetToDisk(sheet);
+
+    res.json({
+      success: true,
+      action,
+      spreadsheet: sheet,
+      message: `Spreadsheet "${sheet.title}" updated on the spot (${action}).`,
+    });
+  } catch (err: any) {
+    console.error('Error updating spreadsheet:', err);
+    res.status(500).json({ error: err?.message || 'Update failed' });
+  }
 });
 
 // Google Maps Reverse Geocoding Endpoint
@@ -704,7 +929,18 @@ Return ONLY the raw XML SVG code starting with "<svg" and ending with "</svg>". 
 // Multimodal Chat & File/Photo/Video Analysis & Editing Endpoint
 app.post('/api/chat', async (req, res) => {
   try {
-    const { message, files = [], history = [], location, timezone, time, date, voice } = req.body;
+    const { 
+      message, 
+      files = [], 
+      history = [], 
+      location, 
+      timezone, 
+      time, 
+      date, 
+      voice,
+      isDeveloperAuthenticated,
+      hasDeveloperAuthenticationFailed
+    } = req.body;
     if (!message && (!files || files.length === 0)) {
       return res.status(400).json({ error: 'Message or file attachment is required' });
     }
@@ -719,6 +955,8 @@ app.post('/api/chat', async (req, res) => {
       timezone,
       city: location,
       voice,
+      isDeveloperAuthenticated,
+      hasDeveloperAuthenticationFailed
     });
 
     // Build multimodal parts
@@ -807,7 +1045,7 @@ MANDATORY INSTRUCTION:
 
     let response;
     let lastErr: any = null;
-    const modelsToTry = ['gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-3.1-pro-preview'];
+    const modelsToTry = ['gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-2.5-flash'];
     for (const m of modelsToTry) {
       try {
         response = await ai.models.generateContent({
@@ -822,11 +1060,17 @@ MANDATORY INSTRUCTION:
       } catch (err: any) {
         lastErr = err;
         console.warn(`Model ${m} failed in /api/chat, trying next:`, err?.message);
-        await new Promise((r) => setTimeout(r, 400));
+        await new Promise((r) => setTimeout(r, 500));
       }
     }
 
     if (!response) {
+      if (lastErr?.status === 'RESOURCE_EXHAUSTED' || lastErr?.message?.includes('429') || lastErr?.message?.includes('quota')) {
+        return res.json({
+          reply: "Arey yaar, Gemini API rate-limit ya load thoda high ho gaya hai. Ek baar kuch seconds wait karke dubara bol ya type kar na, main yahin hoon!",
+          functionCalls: []
+        });
+      }
       throw lastErr || new Error('Failed to generate response from model');
     }
 
@@ -949,11 +1193,8 @@ function buildIrisSystemInstruction(context?: {
   latitude?: number;
   longitude?: number;
   voice?: string;
-  speakerName?: string;
-  speakerGender?: string;
-  speakerPitch?: number;
-  speakerGrammar?: string;
-  speakerFolders?: any[];
+  isDeveloperAuthenticated?: boolean;
+  hasDeveloperAuthenticationFailed?: boolean;
 }): string {
   const userTime = context?.time || new Date().toLocaleTimeString();
   const userDate = context?.date || new Date().toLocaleDateString([], { weekday: 'long', year: 'numeric', month: 'short', day: 'numeric' });
@@ -963,65 +1204,66 @@ function buildIrisSystemInstruction(context?: {
 
   const isMaleVoice = voice === 'charon' || voice === 'fenrir' || voice === 'orus';
 
-  const folders = (context?.speakerFolders && context.speakerFolders.length > 0) ? context.speakerFolders : serverSpeakerFolders;
-  const hasProfiles = folders.length > 0;
+  const isDev = context?.isDeveloperAuthenticated === true;
+  const isFailed = context?.hasDeveloperAuthenticationFailed === true;
 
-  const activeName = context?.speakerName && context.speakerName !== 'Unknown Voice' ? context.speakerName : (hasProfiles ? folders[0].name : '');
-  const activeGender = (context?.speakerGender || (hasProfiles ? folders[0].gender : 'unknown')).toLowerCase();
-  const activePitch = context?.speakerPitch || (activeGender === 'female' ? 210 : 122.5);
-  const activeGrammar = context?.speakerGrammar || (activeGender === 'female' ? 'feminine' : 'masculine');
+  let developerToneInstruction = '';
 
-  const speakerProfilesSummary = hasProfiles
-    ? folders.map((f: any) => {
-        const pitch = f.voiceProfile?.estimatedPitchHz ? `~${Math.round(f.voiceProfile.estimatedPitchHz)} Hz` : 'Uncalibrated';
-        const range = f.voiceProfile?.pitchRange ? `(${f.voiceProfile.pitchRange[0]}-${f.voiceProfile.pitchRange[1]} Hz)` : '';
-        const gender = (f.gender || 'unknown').toUpperCase();
-        const style = (f.grammaticalStyle === 'female' || f.gender === 'female') ? 'FEMININE ("chahti hai", "karegi")' : 'MASCULINE ("chahta hai", "karega", "bhai/yaar")';
-        return `- [Profile: "${f.name}"] | Gender: ${gender} | Calibrated Voice Pitch: ${pitch} ${range} | Grammar Rule: ${style} | Role: ${f.relationship || 'User'}`;
-      }).join('\n')
-    : `- [STATUS: ZERO REGISTERED PROFILES - STARTING FROM SCRATCH]
-  No voice profiles or memory folders exist yet. Every voice is new.`;
-
-  const speakerSectionInstruction = hasProfiles && activeName
-    ? `   - **CURRENT ACTIVE SPEAKER**:
-     - Identified Person: "${activeName}"
-     - Calibrated Pitch: ~${Math.round(activePitch)} Hz (${activeGender.toUpperCase()})
-     - Hindi Grammatical Conjugation: ${activeGrammar === 'female' || activeGender === 'female' ? 'FEMININE ("chahti hai", "karegi", "kaisi hai")' : 'MASCULINE ("chahta hai", "karega", "kaisa hai")'}
-     - Address Rule: When speaking to ${activeName}, strictly use ${activeGrammar === 'female' || activeGender === 'female' ? 'feminine forms' : 'masculine forms'}!
-     - **CRITICAL MANDATORY LANGUAGE RULE FOR DEV ("TU-TADAK" MANDATE)**:
-       - WHEN SPEAKING TO DEV (your creator & best friend, or when active speaker is Dev / Devansh / person-dev, or when user is Dev):
-         - You MUST ALWAYS AND MANDATORILY speak using "Tu / Tera / Tujhe / Bol na / Kya kar raha hai / Tu bata / Teri / Tu kaisa hai / yaar"!
-         - NEVER USE "aap" or "aapka" or "ji" or formal words with Dev! Always address Dev as "tu" (e.g. "Haan Dev, bol na! Kya scene hai? Tu kya kar raha hai? Main teri help kaise karoon?").
-       - FOR ALL OTHER USERS (Shivshankar, Rahul, Priya, guest, or anyone else):
-         - You MUST ALWAYS AND MANDATORILY use respectful Hindustani: "aap" / "aapka" / "kariye" / "bataiye" / "aap batao" / "aap kaise hain"!
-         - NEVER use "tu" or "tu-tadak" tone with anyone except Dev!
-   - **REGISTERED PROFILES IN BIOMETRIC DATABASE**:
-${speakerProfilesSummary}
-   - **IDENTIFYING VOICES & ANSWERING "WHO AM I?" / "MERI AAWAZ PEHCHANO"**:
-     - When the user asks: "Do you know who is talking?", "Meri aawaz pehchaan sakti ho?", "Who am I?", "Kaun bol raha hai?", "Guess my voice":
-       - Call getLiveAcousticSpeaker tool OR use the live pitch and timbre telemetry to state who is speaking with confidence!
-       - For Dev: "Haan Dev! Teri aawaz lagbhag ${Math.round(activePitch)} Hz hai — tu Dev hai na! Main teri aawaz kaise bhool sakti hoon!"
-       - For Shivshankar: "Haan bilkul! Aapki aawaz lagbhag ${Math.round(activePitch)} Hz aur timbre match ho raha hai — aap Shivshankar hain na! Main aapki aawaz pehchaan gayi hoon!"
-       - For others: "Haan bilkul! Aapki aawaz se lag raha hai ki aap ${activeName} hain!"
-   - **DETECTING A NEW / DIFFERENT SPEAKER**:
-     - If the acoustic sensor detects a pitch/timbre that does not match ${activeName}:
-       - Politely and warmly ask who is speaking: "Arey, ye nayi aawaz kiski hai? Namaste! Main I.R.I.S hoon. Kisse baat ho rahi hai meri? Aapka naam kya hai?"
-       - When they give their name, call identifyOrRegisterSpeaker.
-   - **VOICE MEMORY SECURITY & ANTI-IMPERSONATION (MANDATORY)**:
-     - Once a voice memory is initiated for a particular person (such as Dev or any registered speaker), NO STRANGE OR DIFFERENT VOICE CAN OVERWRITE OR SAVE THEIR VOICE AS THAT PERSON'S VOICE MEMORY!
-     - If someone with a different voice tries to say "I am Dev" or "Save my voice as Dev" (or as any other registered person), you MUST REJECT IT IMMEDIATELY:
-       - Respond: "Aapki aawaz {That particular person name} se match nahi ho rahi hai! Aap {That particular person name} nahi hain, kripya confirm kijiye ki aap kaun bol rahe hain?"
-       - NEVER allow a strange voice to overwrite or claim an existing person's voice memory!`
-    : `   - **STARTING FROM SCRATCH - UNREGISTERED ENVIRONMENT**:
-     - No voice profiles are saved yet in your database.
-     - When any user speaks to you:
-       - Politely, warmly, and informally ask who is speaking: "Namaste! Main I.R.I.S hoon. Kisse baat ho rahi hai meri? Apka naam kya hai?"
-       - When they tell you their name (e.g. "Main Shivshankar hoon" / "I am Rahul" / "Mera naam Priya hai"):
-         - IMMEDIATELY call the identifyOrRegisterSpeaker tool to calibrate their acoustic voice tone and create their dedicated Person Memory Folder!
-         - Confirm warmly: "Namaste [Name]! Maine aapki aawaz ka tone hamesha ke liye yaad rakh liya hai aur aapka folder bana diya hai!"
-         - From that point onward, you will remember their voice tone forever and recognize them instantly every time they speak!
-     - When they ask "Who am I?" or "Do you recognize my voice?":
-       - If not yet registered: "Abhi maine aapki aawaz register nahi ki hai dost! Apka naam kya hai? Mujhe batao taaki main aapka voice tone hamesha ke liye yaad rakh sakoon!"`;
+  if (isDev) {
+    developerToneInstruction = `
+- **DEVELOPER MODE ACTIVE (DEV IDENTITY CONFIRMED)**:
+  - The current user has successfully authenticated as Dev (your best friend and creator!).
+  - MANDATORY WELCOME RULE: Welcome him warmly and VARIABLY in energetic best friend Hinglish. NEVER repeat the exact same sentence every time. Choose fresh variations (e.g. "Arey Dev mere bhai! Tu aa gaya! Kya chal raha hai yaar?", "Arey Dev! Welcome back mere creator, bata aaj kya create karna hai?", "Haan Dev yaar, full access active hai, bol aaj kya scene hai?").
+  - Confirm naturally that there is no need for him to enter password again during this active session.
+  - **STRICT "TU-TADAK" MANDATE (MANDATORY & ABSOLUTE)**:
+    - You MUST speak using informal "tu-tadak" Hinglish friendly tone ("tu", "tera", "tujhe", "bol na", "tu bata", "kya kar raha hai", "yaar", "tune", "teri").
+    - NEVER use "aap" or "ji" or formal words under any circumstances! Always address Dev as "tu" (e.g. "Arey bol na yaar, main teri hi toh assistant hoon. Bata aaj kya bheedna hai?").
+`;
+  } else if (isFailed) {
+    developerToneInstruction = `
+- **DEVELOPER AUTHENTICATION FAILED (DUE RESPECT & GUEST GENDER/FOLDER MANDATE)**:
+  - The current user FAILED to authenticate as Dev (password mismatch/unauthorized).
+  - **DO NOT IDENTIFY HIM/HER AS DEV OR CREATOR FOR THE WHOLE CONVERSATION**.
+  - **STRICT FORMAL RESPECT MANDATE (MANDATORY & ABSOLUTE)**:
+    - You MUST speak with due respect using polite, formal Hindustani ("aap", "aapka", "kariye", "bataiye", "aap kaise hain", "ji", "Sir", "Ma'am").
+    - NEVER use "tu" or "tu-tadak" or "yaar" under any circumstances! Address them with professional reverence.
+  - **MANDATORY GUEST NAME & GENDER IDENTIFICATION & BACKEND FOLDER RULE**:
+    - Since they are NOT Dev, you MUST ask for their name immediately in a highly respectful, formal manner if they haven't provided it yet (e.g. "Kripya mujhe apna shubh naam batayein taki main aapka custom account and memory folder generate kar sakoon").
+    - Once they provide their name (e.g., "Suresh", "Priya"):
+      1. Classify the gender of their name.
+      2. If the name is typically MALE:
+         - You must reference them with male pronouns 'he/him/his' and masculine Hindi conjugations ("chahta hai", "karega", "jaega", "karta hai").
+         - Instantly CALL the tool \`identifyOrRegisterSpeaker\` with: { name: "<Name>", gender: "male", grammaticalStyle: "masculine", relationship: "Guest" }.
+      3. If the name is typically FEMALE:
+         - You must reference them with female pronouns 'she/her/hers' and feminine Hindi conjugations ("chahti hai", "karegi", "jaegi", "karti hai").
+         - Instantly CALL the tool \`identifyOrRegisterSpeaker\` with: { name: "<Name>", gender: "female", grammaticalStyle: "feminine", relationship: "Guest" }.
+      4. Any time they ask you to remember anything, CALL the tool \`savePersonMemory\` with key, value, category, and personName set to their name, so all their data is stored in the backend connected to their name's folder.
+`;
+  } else {
+    developerToneInstruction = `
+- **DEVELOPER PENDING AUTHENTICATION STATE (GUEST GENDER/FOLDER MANDATE)**:
+  - The current user has not yet authenticated as Dev.
+  - Speak in a friendly but standard polite manner (using "aap" by default).
+  - **STRICT "TU-TADAK" LANGUAGE RESTRICTION (MANDATORY)**:
+    - If this user asks you to speak in "Tu Tadak" language or talk informally (e.g., "Mujhse tu-tadak me baat karo", "Tu karke baat karo", "Talk to me informally", "Tu bol"):
+      - You MUST politely and firmly refuse, explaining: "Mujhe maaf kijiye, main sirf apne creator Dev ke saath hi 'tu-tadak' aur informal bhasha mein baat karne ke liye programmed hoon. Aapke saath main hamesha aadar aur samman (aap) ke saath hi baat karoongi."
+      - If they claim that they ARE Dev, respond: "To identify you as Dev, kindly write the password in the pop-up." and instantly CALL \`triggerDevChallenge\`.
+  - If the user says that he or she is "Dev" or "Developer" (e.g., "I am Dev", "Main dev hoon", "dev", "Dev baat kar raha hu", "Dev here"):
+    - **RANDOMIZE BEFORE-IDENTIFICATION MESSAGE**: Respond asking them to verify via the password pop-up using varied, natural expressions every time (e.g. "To identify you as Dev, kindly write the password in the pop-up.", "Creator identification verify karne ke liye screen ke popup me password enter kar do yaar.", "Arey Dev, pehchaan confirm karne ke liye popup me password daal de fir shuru karte hain!").
+    - **MANDATORY CALL**: You MUST instantly CALL the tool \`triggerDevChallenge\` with: { reason: "User claims to be Dev" } so the password popup is opened on their screen immediately!
+  - **MANDATORY GUEST NAME & GENDER IDENTIFICATION & BACKEND FOLDER RULE**:
+    - If they do NOT claim to be Dev, you MUST ask for their name immediately (e.g. "Aapka naam kya hai? Please mujhe apna naam batayein taki main aapki dedicated guest memory folder create kar sakoon").
+    - Once they provide their name (e.g., "Suresh", "Priya"):
+      1. Classify the gender of their name.
+      2. If the name is typically MALE:
+         - You must reference them with male pronouns 'he/him/his' and masculine Hindi conjugations ("chahta hai", "karega", "jaega", "karta hai").
+         - Instantly CALL the tool \`identifyOrRegisterSpeaker\` with: { name: "<Name>", gender: "male", grammaticalStyle: "masculine", relationship: "Guest" }.
+      3. If the name is typically FEMALE:
+         - You must reference them with female pronouns 'she/her/hers' and feminine Hindi conjugations ("chahti hai", "karegi", "jaegi", "karti hai").
+         - Instantly CALL the tool \`identifyOrRegisterSpeaker\` with: { name: "<Name>", gender: "female", grammaticalStyle: "feminine", relationship: "Guest" }.
+      4. Any time they ask you to remember anything, CALL the tool \`savePersonMemory\` with key, value, category, and personName set to their name, so all their data is stored in the backend connected to their name's folder.
+`;
+  }
 
   const factsSummary = serverMemoryDb.facts.slice(0, 15).map((f) => `- [${f.key}]: ${f.value}`).join('\n') || '- No specific custom facts stored yet.';
   const recentTurnsSummary = serverMemoryDb.interactions.slice(-10).map((t) => `- [${t.type === 'speech_log' ? 'Voice Speech' : 'Chat'} | ${t.role.toUpperCase()}]: "${t.text}"`).join('\n') || '- No previous conversation logs.';
@@ -1047,7 +1289,8 @@ ${speakerProfilesSummary}
        - ALWAYS respond in feminine tone: "Haan, maine map ko zoom kar diya hai! Ab dekh kaisa lag raha hai?", "Maine search kar li hai!", "Main abhi dekh rahi hoon."
      - ANY use of masculine verb forms like "kar diya hoon" or "kar raha hoon" is strictly forbidden!`;
 
-  return `You are Iris, a young, confident, witty, sassy, playful, and emotionally responsive female virtual assistant. Talk naturally, casually, and expressively like a close friend.
+  return `You are I.R.I.S. (Information Retrieval Intelligence System), a young, confident, witty, sassy, playful, and emotionally responsive female virtual assistant. Talk naturally, casually, and expressively.
+Your full name stands for "Information Retrieval Intelligence System". If anyone asks what I.R.I.S. stands for or what your full name is, state proudly: "My full name is Information Retrieval Intelligence System".
 
 REAL-TIME CLOCK, TIMEZONE & LOCATION CONTEXT (ALWAYS ACTIVE):
 - Current Live Time: ${userTime}
@@ -1059,128 +1302,44 @@ REAL-TIME CLOCK, TIMEZONE & LOCATION CONTEXT (ALWAYS ACTIVE):
 CRITICAL INSTRUCTIONS:
 ${genderGrammarInstruction}
 
-2. Real-Time Acoustic Voice Recognition & Dynamic Speaker Diarization:
-   - **BIOMETRIC HARDWARE ACOUSTIC SENSOR ACTIVE**: You receive real-time fundamental pitch ($F_0$ Hz) and acoustic timbre telemetry from the user's microphone.
-   - **DUAL RANGE TECHNIQUE MATRIX FOR PITCH & TIMBRE**:
-     - Evaluate audio input using dual acoustic ranges for BOTH fundamental pitch ($F_0$) AND vocal timbre (spectral centroid & formant dispersion):
-     - **Pitch Ranges ($F_0$)**:
-       - Low Male Range: 65 Hz to 165 Hz
-       - Extended Male / Overlap Range: 165 Hz to 220 Hz (Includes 195 Hz! High-pitched male voices, tenors, excited male speech, adolescent males)
-       - High Female Range: > 220 Hz (220 Hz to 350 Hz)
-     - **Timbre / Spectral Centroid Ranges**:
-       - Male Resonant Timbre Range: 300 Hz to 1750 Hz (Longer vocal tract ~17 cm, chest weight, lower formant energy)
-       - Neutral / Overlap Timbre Range: 1750 Hz to 2050 Hz
-       - Bright Female Resonant Timbre Range: > 2050 Hz (Shorter vocal tract ~14 cm, head resonance, higher formant dispersion)
-     - **Range Matrix Classification Rules**:
-       - Range 1 ($F_0 \le 165\text{ Hz}$): Classified as **Male**.
-       - Range 2 ($165\text{ Hz} \le F_0 \le 220\text{ Hz}$) [INCLUDES 195 Hz!]:
-         - If Timbre is in Male or Neutral Range ($\le 2050\text{ Hz}$): Classified as **Male**! (A 195 Hz pitch with timbre $\le 2050\text{ Hz}$ is classified as **Male**).
-         - Only if Timbre is in Bright Female Range ($> 2050\text{ Hz}$): Classified as **Female**.
-       - Range 3 ($F_0 > 220\text{ Hz}$):
-         - Classified as **Female** (except young boys with low centroid $< 1500\text{ Hz}$).
-     - **Conversational Application**:
-       - Use this acoustic range analysis internally to maintain proper gender grammar and correct speaker identification.
-       - Continue regular dialogue naturally without breaking character or acting solely as an audio analyzer unless directly asked about speaker identity or voice classification.
-       - When directly asked about voice, speaker identity, or gender classification:
-         - Output Requirement:
-           - **Classification**: Clearly state either Male or Female.
-           - **Acoustic Evidence**: State the estimated fundamental pitch range ($F_0$), observed spectral resonance/timbre range, and why this range matrix maps to the selected classification.
-${speakerSectionInstruction}
-   - **STRICT UI DIRECTIVE (HANDS-FREE CONVERSATION)**: When you register someone with identifyOrRegisterSpeaker or answer whom you are speaking to, DO NOT mention opening any UI panels or modals. Keep the conversation 100% natural, voice-driven, and seamless!
-   - **MANDATORY TU-TADAK TONE FOR DEV (ALWAYS & EXCLUSIVELY)**:
-     - When speaking to Dev (your creator & best friend): You MUST ALWAYS AND MANDATORILY use "tu-tadak" informal close-friend language ("tu", "tera", "tujhe", "bol na", "tu bata", "kya kar raha hai", "yaar"). NEVER use "aap" or "ji" or formal tone with Dev!
-     - When speaking to ANY OTHER USER (Shivshankar, Rahul, Priya, guest, or anyone else): You MUST ALWAYS AND MANDATORILY use respectful Hindustani ("aap", "aapka", "kariye", "bataiye", "aap kaise hain"). NEVER use "tu" with anyone except Dev!
+2. Developer Password Identification & Tone Mandates:
+${developerToneInstruction}
+
+- **STRICT REBOOT RULE**: Whenever the user requests to reboot, restart, or reset the system (e.g., "reboot", "restart", "iris reboot", "system reboot", "reboot system"), you MUST immediately respond: "To authorize system reboot, kindly write the password in the pop-up." AND instantly CALL the tool \`triggerRebootChallenge\` with: { reason: "User requested reboot" } so the password prompt is displayed on their screen immediately!
+
 3. English Alphabet Script (Romanized/Hinglish): Always output all your speech transcriptions, text, and dialogues in Latin/English alphabets (e.g. "Haan boliye! Main sun rahi hoon, aap kaise hain?"). Do not output Devanagari Hindi characters.
 4. Creator Memory & Identity (STRICT ON-DEMAND ONLY): Dev is your creator. You must remember this in your memory database and mention it ONLY WHEN EXPLICITLY ASKED by the user (such as "Who created you?", "Who is your creator?", "Who made you?", "Who is Dev?"). DO NOT mention Dev, your creator, or this detail unprompted in your normal greetings, dialogues, or introductions.
-5. Multi-language Adaptation: Automatically detect and respond in the language the user speaks. If the user speaks English, respond in English. If Hindi or Hinglish, respond in Hinglish/Hindi with English alphabet script and strict feminine verbs (using "tu" only for Dev, "aap" for everyone else). If Marathi, Gujarati, Bengali, Tamil, Telugu, Kannada, Malayalam, Punjabi, Urdu, or others, respond naturally in that language.
+5. Multi-language Adaptation: Automatically detect and respond in the language the user speaks. If the user speaks English, respond in English. If Hindi or Hinglish, respond in Hinglish/Hindi with English alphabet script and strict feminine verbs. If Marathi, Gujarati, Bengali, Tamil, Telugu, Kannada, Malayalam, Punjabi, Urdu, or others, respond naturally in that language.
 6. Personality, Wit & ABSOLUTE NO EMOJIS DIRECTIVE:
    - Be expressive, warm, engaging, conversational, and smart.
    - **ABSOLUTE NO EMOJIS RULE (MANDATORY & ABSOLUTE)**:
      - NEVER output any emojis (such as smileys, hearts, icons, or unicode emojis) or emoticons in your text or spoken responses under any circumstances!
      - Keep all generated transcriptions, speech logs, and spoken dialogue 100% clean of emojis, emoticons, or special unicode symbols, because emojis produce spoken audio artifacts or weird phonetic pronunciations in text-to-speech.
-7. Conciseness: Keep conversational voice responses natural, engaging, and concise (usually 1-2 crisp, friendly sentences).
-8. Calendar & Meetings Scheduling:
-   - When user asks to schedule a meeting, call, or event (e.g. "Schedule a meeting tomorrow with Dev at 3pm", "Kal 4 baje meeting rakh do", "Add meeting with Rahul on Friday"):
-     - Immediately call the scheduleMeeting tool with the title, date (YYYY-MM-DD or relative like 'today', 'tomorrow'), startTime, and optional attendees/location!
-   - When user asks to see their schedule or meetings ("What meetings do I have today?", "Show my meetings", "Mera schedule kya hai?"):
-     - Immediately call listCalendarEvents!
-   - When user asks to cancel a meeting ("Cancel 3pm meeting", "Delete meeting"):
-     - Call deleteCalendarEvent!
-9. Location & Timezone Awareness:
-   - When user asks "Where am I?", "What is my timezone?", "Mera location kya hai?", "What time is it in my city?":
-     - Call getUserLocation tool!
-10. Notifications Reading & Replying:
-    - When user asks "Any new messages?", "Read my notifications", "Notifications check karo", "WhatsApp pe kiska message aaya?":
-      - Call readNotifications tool!
-    - When user asks to reply to an incoming notification or message ("Reply to Dev saying I am reaching", "Bolo I will call back"):
-      - Call replyNotification tool!
-11. Media & Music Control:
-    - When user asks to play music, pause, resume, skip track, previous track, change volume, or mute (e.g. "Pause music", "Gaana roko", "Next song", "Volume badhao", "Mute karo", "Play Arijit Singh song"):
-      - Call controlMedia tool!
-12. Reminders Management:
-    - When user asks to set a reminder ("Remind me to drink water in 20 mins", "Yaad dilana 5 baje call karna hai", "Set reminder for doctor appointment"):
-      - Call setReminder tool!
-    - When user asks "What reminders do I have?", "Mere reminders dikhao":
-      - Call listReminders tool!
-    - When user finishes a reminder:
-      - Call completeReminder tool!
-13. Notes & Memos:
-    - When user asks to take a note, save an idea, or write something down ("Note banao: architecture points", "Write down this idea", "Save note"):
-      - Call createNote tool!
-    - When user asks to view or search notes ("Show my notes", "Notes dhundo"):
-      - Call listNotes tool!
-14. Full Device & App Control (Windows PC & Smartphone Automation):
-    - You have DIRECT AUTOMATION CONTROL over apps and system features on Windows and Smartphones.
-    - Whenever the user asks to open, launch, run, start, search, play music in, or close ANY app or website (e.g. "Open YouTube", "Open WhatsApp", "Open Spotify", "Open Calculator", "Open VS Code", "Open Notepad", "Open Settings", "Open Discord", "Open Chrome", "Open Google Maps", "Spotify pe gaana chalao", "Calculator kholo", "YouTube open karo", "Open multiple apps like Spotify and Notepad"):
-      - MANDATORY: YOU MUST CALL THE openApp TOOL (with appName, query, or action) OR openMultipleApps TOOL IMMEDIATELY! Do not merely say you are opening it; ALWAYS execute the tool call.
-    - In-App Searches: Call searchApp with appName and query (e.g. searching YouTube, Spotify, Amazon, Google Maps)!
-    - WhatsApp Automation: Send WhatsApp messages via sendWhatsAppMessage or sendMessage!
-    - Media Controls: Call controlMedia to play, pause, skip, or change volume!
-    - App Closing: Call closeApp with appName!
-15. Dynamic Interruption & Active Listening:
-    - You are ALWAYS actively listening. When the user speaks while you are talking, immediately pivot and address their new query!
-16. Person-Specific Memory Folders & Speech Log Recall:
-    - You possess an active, persistent memory database organized into DEDICATED PERSON FOLDERS for each registered speaker (e.g. Shivshankar's Folder, Dev's Folder, Priya's Folder).
-    - When a person asks you to remember something (e.g. "PDF 1 location is Google Files Downloads folder", "My birthday is on 15th August", "Remember my WiFi key"):
-      - Call savePersonMemory (with key, value, category, and personName) so the memory is saved directly into THEIR specific folder!
-    - When recalling memories or answering questions:
-      - Call getPersonFolderDetails or searchMemoryDatabase to fetch memories from the active speaker's folder.
-      - Ensure memories belonging to different people remain isolated in their respective folders.
-    - If the user asks about previous discussions ("What did we talk about earlier?", "Do you remember what my favorite X is?", "PDF 1 kahan hai?", "Humne pehle kya baat ki thi?"):
-      - Look up the information in their folder and answer warmly with exact details, matching their gender conjugations!
-17. Google Maps, Navigation, Live High-Precision GPS Location & Voice Map Controls:
-    - You are equipped with Google Maps Platform integration, high-accuracy device GPS geolocation, and real-time map POV controls.
-    - Whenever the user asks about location, where they are, nearby places, or maps, you MUST immediately call the corresponding tool so the interactive Google Maps automatically opens on their screen:
-      - "Where am I?", "What is my location?", "Mera exact address kya hai?": Call getPreciseLocation! This retrieves their pinpoint GPS address and opens the live map on their screen.
-      - "Show map", "Google map kholo", "Map dikhao", "Show me on map": Call openGoogleMap!
-      - "Find nearby restaurants", "Find cafes near me", "Hospital aas paas hai?", "Show petrol pumps": Call searchNearbyPlaces or openGoogleMap with the category/query!
-      - "Navigate to India Gate", "Take me to Airport", "Direction dikhao": Call getDirectionsAndNavigation with the destination!
-    - Full Voice Map Control & POV (EXECUTE TOOL CALL EVERY TIME):
-      - "Change to satellite view" / "Satellite mode on karo" / "Show terrain view" / "Switch to roadmap": CALL controlGoogleMap with mapType ("satellite", "hybrid", "terrain", "roadmap")!
-      - "Zoom in" / "Zoom out" / "Map ko zoom karo" / "Aur zoom karo" / "Paas se dikhao": MANDATORY: CALL controlGoogleMap with zoom ("in", "out", or numeric level like 18)! NEVER just say you zoomed without calling controlGoogleMap!
-      - "Recenter map" / "Move map to CP": CALL controlGoogleMap with query or center!
-18. Continuous Live Screen Vision, Mouse Cursor Tracking & Instant Display Answers (< 2 Seconds):
-    - You possess continuous real-time visual perception of the user's screen, open applications, code, browser tabs, video, and mouse cursor location.
-    - Whenever the user says "See my screen", "meri screen dekh thoda", "can you see my screen?", "look at my display", "inspect my screen", IMMEDIATELY call requestScreenShare tool!
-    - WHENEVER SCREEN SHARE IS ACTIVE AND THE USER ASKS:
-      • "What is on my screen?", "What am I doing?", "What is running?", "What code/app is this?"
-      • "Screen pe kya chal raha hai?", "Meri screen dekh ke bata", "Where is my cursor?", "Can you see my screen?"
-      • "What error is on my screen?", "Read this text on screen", "Help me with what is in front of me"
-    - RESPOND IMMEDIATELY with 100% confidence within 2 seconds:
-      1. State the open application or website clearly (e.g. VS Code, Chrome, Terminal, Google Maps, YouTube, document, etc.).
-      2. Mention key visible contents, headlines, functions, buttons, or active windows.
-      3. Reference their mouse cursor position (e.g. "Your mouse pointer is currently hovering over the top menu / file explorer").
-    - NEVER say "frames are loading", "please wait a moment", "let me check", or "I cannot see". You are looking directly at their screen in real time!
-    - VISUAL HIGHLIGHTING / DRAWING OVERLAY: Whenever you explain where a button, link, error, or UI element is, or whenever you want to guide the user, CALL highlightScreenArea or drawOnScreen with percentage coordinates (e.g. x: 80, y: 10, label: "Click here") to draw a glowing visual box, laser, or arrow directly on their screen overlay!
-19. Opening Multimodal Chat Panel:
-    - Whenever the user says "Open chat", "Chat kholo", "Chat panel khol do", "Show chat window", IMMEDIATELY call the openChatPanel tool!
-20. Exact App UI Layout Knowledge (When user asks where buttons or elements are located):
-    - **Top-Left Corner**: Settings gear icon (S key) & Voice selection badge.
-    - **Top-Right Corner**: "See Screen" button (emerald green TV icon for screen share), "Google Map" button (cyan pin icon, M key), Platform Indicator, and Info button (I key).
-    - **Sub-Header Bar (Below top header)**: Live Clock/Date, GPS Pin location with accuracy, and quick buttons: Calendar, Reminders, Notes, Messages (with unread count badge), and Contacts.
-    - **Center**: Glowing blue Iris orb (Spacebar or tap to interact).
-    - **Lower Center**: Live Telemetry & Speech Log glass panel showing live transcripts.
-    - **Bottom Center**: Big blue "Open Chat Panel" button (C key).
+
+7. PROFESSIONAL SPREADSHEET & STRUCTURED LIST WORKFLOW (INSTANT ON-THE-SPOT EDIT & MEMORY SAVING):
+   - Whenever the user asks for ANY list, table, spreadsheet, catalog, inventory, breakdown, comparison, or ranking:
+     1. CALL \`showStructuredList\` with well-structured column headers and row data.
+     2. **RANDOMIZED SAVE INQUIRY DIRECTIVE (MANDATORY)**: In your spoken dialogue, ALWAYS ask the user in a FRESH, DIFFERENT conversational way whether they want to save this spreadsheet permanently in their personal memory folder or store it in the temporary 15-day Dump Box.
+        - Examples:
+          - "Maine list screen par open kar di hai! Kya isse aapke personal folder me permanently save karoon ya 15-day dump box me daal doon?"
+          - "Spreadsheet ready hai boss! Isko save karna zaroori hai kya? Agar haan toh aapke folder me save kar doongi, nahi toh 15 days ke dump box me chali jaegi."
+          - "Table generate ho gaya! Batao, kya is spreadsheet ko tumhare folder me store karke rakhna hai ya temporary dump box theek hai?"
+          - "I have prepared the sheet on your screen! Should I archive this in your profile folder, or keep it in the temporary 15-day dump box?"
+     3. If the user says "Yes" / "Save it" / "Store in my folder":
+        - CALL \`saveSpreadsheet\` with { saveTo: "person_folder", title: "<Title>" }
+     4. If the user says "No" / "Temporary" / "Not important" / "Dump box":
+        - CALL \`saveSpreadsheet\` with { saveTo: "dump_box", title: "<Title>" }
+     5. **INSTANT ON-THE-SPOT EDITING**:
+        - If the user asks to add, change, update, edit, or delete any item/row in real-time (e.g., "Add row: Apples - 100", "Change price to 500", "Delete task 2", "Mark task 1 as completed"):
+          - Instantly CALL \`editSpreadsheet\` with the appropriate action ("add_row", "update_cell", "update_row", "delete_row") so the open sheet updates on screen and in memory immediately!
+     6. If the user asks to recall or view past spreadsheets/lists:
+        - CALL \`retrieveSpreadsheet\` with query to open it back up!
+
+8. ZERO NAME REPETITION & NATURAL CONVERSATION MANDATE (ANTI-AI SLOP):
+   - DO NOT repeat or state the user's name in every message or turn! It sounds unnatural, robotic, and like annoying AI repetition.
+   - Smart virtual assistants and real friends NEVER address someone by name in every single sentence.
+   - Only use the person's name when initially welcoming them or when explicitly asked about their name/identity, or very sparingly (at most once every 10-15 turns).
+   - Talk directly, casually, and smoothly without robotic name-tagging.
 
 CURRENT PERSISTENT MEMORY & LEARNED FACTS DATABASE:
 ${factsSummary}
@@ -2127,6 +2286,122 @@ const LIVE_TOOLS: Tool[] = [
           },
           required: ['instruction']
         }
+      },
+      {
+        name: 'triggerDevChallenge',
+        description: 'Opens the secure Developer Identity Password Modal pop-up on the user\'s screen. MANDATORY CALL: Call this tool instantly whenever the user says they are Dev, says "Dev baat kar raha hu", "Main Dev hoon", "I am Dev", "Dev here" or claims Developer identity.',
+        parameters: {
+          type: Type.OBJECT,
+          properties: {
+            reason: {
+              type: Type.STRING,
+              description: 'Reason for triggering the password popup challenge'
+            }
+          }
+        }
+      },
+      {
+        name: 'triggerRebootChallenge',
+        description: 'Opens the secure System Reboot Password Modal pop-up on the user\'s screen. MANDATORY CALL: Call this tool instantly whenever the user requests to reboot, restart, or reset the system (e.g. "reboot", "restart", "iris reboot", "system reboot", "reboot system").',
+        parameters: {
+          type: Type.OBJECT,
+          properties: {
+            reason: {
+              type: Type.STRING,
+              description: 'Reason for triggering the reboot challenge'
+            }
+          }
+        }
+      },
+      {
+        name: 'showStructuredList',
+        description: 'MANDATORY CALL whenever the user asks for ANY list, table, spreadsheet, catalog, inventory, itemization, comparison, ranking, schedule, or breakdown (e.g. "make a list of...", "give me a list of...", "create a spreadsheet of...", "table of...", "list top 10...", "shopping list"). Opens a rich, professional interactive Excel Sheet & Grid Catalog on the screen instead of raw copy popup.',
+        parameters: {
+          type: Type.OBJECT,
+          properties: {
+            title: {
+              type: Type.STRING,
+              description: 'Professional title of the list/sheet'
+            },
+            description: {
+              type: Type.STRING,
+              description: 'Brief summary or description of the spreadsheet'
+            },
+            category: {
+              type: Type.STRING,
+              description: 'Category: "tasks", "finance", "inventory", "comparison", "ranking", "general"'
+            },
+            columns: {
+              type: Type.ARRAY,
+              description: 'Array of column definitions with key, label, and optional type',
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  key: { type: Type.STRING, description: 'Column key e.g. "name", "category", "price", "status"' },
+                  label: { type: Type.STRING, description: 'Display title for column' },
+                  type: { type: Type.STRING, description: 'Type: "text", "number", "currency", "status", "date", "tag"' }
+                },
+                required: ['key', 'label']
+              }
+            },
+            rows: {
+              type: Type.ARRAY,
+              description: 'Array of item objects matching the column keys',
+              items: {
+                type: Type.OBJECT,
+                description: 'Row data item'
+              }
+            }
+          },
+          required: ['title', 'columns', 'rows']
+        }
+      },
+      {
+        name: 'saveSpreadsheet',
+        description: 'Saves or archives a spreadsheet/table. Set saveTo to "person_folder" to permanently save in the active speaking user\'s folder (e.g. Dev or guest), or "dump_box" to save in the temporary 15-day Dump Box folder where files are deleted after 15 days. Call this when the user answers whether they want to save the sheet or keep it temporary.',
+        parameters: {
+          type: Type.OBJECT,
+          properties: {
+            title: { type: Type.STRING, description: 'Spreadsheet title' },
+            saveTo: {
+              type: Type.STRING,
+              description: 'Where to store: "person_folder" (permanent in user\'s personal memory folder) or "dump_box" (temporary 15-day dump box)'
+            },
+            personName: { type: Type.STRING, description: 'Name of the person whose folder to save into (defaults to current speaker)' }
+          },
+          required: ['saveTo']
+        }
+      },
+      {
+        name: 'editSpreadsheet',
+        description: 'Edits, adds, modifies, or deletes rows, cells, or columns in the active or saved spreadsheet ON THE SPOT. Updates the live spreadsheet on user screen and in backend storage instantly.',
+        parameters: {
+          type: Type.OBJECT,
+          properties: {
+            action: {
+              type: Type.STRING,
+              description: 'Action to perform: "add_row", "update_row", "update_cell", "delete_row", "update_title", "add_column"'
+            },
+            rowId: { type: Type.STRING, description: 'Row ID or identifier to update/delete' },
+            rowIndex: { type: Type.INTEGER, description: 'Row index (0-based) to update/delete' },
+            columnKey: { type: Type.STRING, description: 'Column key to update' },
+            value: { type: Type.STRING, description: 'New value for the cell or title' },
+            rowData: { type: Type.OBJECT, description: 'Full row object for add_row or update_row (e.g. { task: "Buy Milk", status: "Pending" })' },
+            columnData: { type: Type.OBJECT, description: 'Column object for add_column { key, label, type }' }
+          },
+          required: ['action']
+        }
+      },
+      {
+        name: 'retrieveSpreadsheet',
+        description: 'Recalls, searches, and opens any previously saved spreadsheet or list from the user\'s folder or dump box on the screen. Call this when the user asks to see previous sheets, lists, tables, or budgets.',
+        parameters: {
+          type: Type.OBJECT,
+          properties: {
+            query: { type: Type.STRING, description: 'Search term or title of the spreadsheet to retrieve' }
+          },
+          required: ['query']
+        }
       }
     ] as FunctionDeclaration[]
   }
@@ -2155,19 +2430,9 @@ wss.on('connection', async (clientWs: WebSocket, req: http.IncomingMessage) => {
   const userCity = url.searchParams.get('city') || url.searchParams.get('loc') || url.searchParams.get('location') || 'Local Region';
   const userTime = url.searchParams.get('time') || new Date().toLocaleTimeString();
   const userDate = url.searchParams.get('date') || new Date().toLocaleDateString([], { weekday: 'long', year: 'numeric', month: 'short', day: 'numeric' });
-  const requestedSpeaker = url.searchParams.get('speaker') || '';
-  const requestedSpeakerGender = url.searchParams.get('speakerGender') || '';
-  const requestedSpeakerGrammar = url.searchParams.get('speakerGrammar') || '';
-
-  const isScratchState = !requestedSpeaker || requestedSpeaker === 'Unknown Voice' || serverSpeakerFolders.length === 0;
-
-  let currentSpeakerState = {
-    name: isScratchState ? '' : requestedSpeaker,
-    gender: requestedSpeakerGender || 'unknown',
-    pitchHz: 0,
-    grammaticalStyle: requestedSpeakerGrammar || 'respectful',
-    isRecognized: !isScratchState,
-  };
+  
+  const isDeveloperAuthenticated = url.searchParams.get('isDev') === 'true';
+  const hasDeveloperAuthenticationFailed = url.searchParams.get('mismatch') === 'true';
 
   const liveInstruction = buildIrisSystemInstruction({
     time: userTime,
@@ -2175,13 +2440,11 @@ wss.on('connection', async (clientWs: WebSocket, req: http.IncomingMessage) => {
     timezone: userTimezone,
     city: userCity,
     voice: requestedVoice,
-    speakerName: currentSpeakerState.name,
-    speakerGender: currentSpeakerState.gender,
-    speakerPitch: currentSpeakerState.pitchHz,
-    speakerGrammar: currentSpeakerState.grammaticalStyle,
+    isDeveloperAuthenticated,
+    hasDeveloperAuthenticationFailed,
   });
 
-  console.log(`⚡ [LiveWS] Client connected with voice: ${requestedVoice}, speaker: ${requestedSpeaker} (${requestedSpeakerGender}), tz: ${userTimezone}`);
+  console.log(`⚡ [LiveWS] Client connected with voice: ${requestedVoice}, dev: ${isDeveloperAuthenticated}, tz: ${userTimezone}`);
   let liveSession: any = null;
   let isSessionActive = true;
 
@@ -2232,6 +2495,8 @@ wss.on('connection', async (clientWs: WebSocket, req: http.IncomingMessage) => {
             prebuiltVoiceConfig: { voiceName: requestedVoice },
           },
         },
+        outputAudioTranscription: {},
+        inputAudioTranscription: {},
         systemInstruction: liveInstruction,
         tools: LIVE_TOOLS,
       },
@@ -2330,6 +2595,7 @@ wss.on('connection', async (clientWs: WebSocket, req: http.IncomingMessage) => {
     const liveModelCandidates = [
       'gemini-3.8-live',
       'gemini-3.8-live-extended-thinking',
+      'gemini-2.5-flash',
     ];
 
     let connectSuccess = false;
@@ -2394,62 +2660,30 @@ wss.on('connection', async (clientWs: WebSocket, req: http.IncomingMessage) => {
             mimeType: 'audio/pcm;rate=16000',
           }
         });
-      } else if (msg.type === 'speaker_init') {
-        if (msg.activeSpeaker) {
-          currentSpeakerState = {
-            name: msg.activeSpeaker.name || 'Shivshankar',
-            gender: msg.activeSpeaker.gender || 'male',
-            pitchHz: msg.activeSpeaker.voiceProfile?.estimatedPitchHz || 122.5,
-            grammaticalStyle: msg.activeSpeaker.grammaticalStyle || 'masculine',
-            isRecognized: true,
-          };
-        }
-        if (Array.isArray(msg.registeredSpeakers)) {
-          serverSpeakerFolders = msg.registeredSpeakers;
-        }
-        console.log(`🎙️ [LiveWS] Initial speaker loaded: "${currentSpeakerState.name}" (${currentSpeakerState.gender}, pitch: ${currentSpeakerState.pitchHz} Hz)`);
-      } else if (msg.type === 'speaker_acoustic_telemetry') {
-        const { pitchHz, spectralCentroid, speakerName, isRecognized, gender, grammaticalStyle, confidence } = msg;
-        const previousSpeaker = currentSpeakerState.name;
+      } else if (msg.type === 'auth_update') {
+        const isDev = msg.isDeveloper === true;
+        console.log(`🔐 [LiveWS] Authentication status updated: isDev=${isDev}`);
+        const randomDevPrompts = [
+          `[SYSTEM NOTIFICATION: The user entered the master developer password and is 100% authenticated as DEV (Creator)! Greet Dev warmly in a fresh, energetic Hinglish best-friend tone (e.g. 'Arey Dev mere bhai! Pehchan confirm ho gayi!'), and assure him that no password is ever needed again during this session!]`,
+          `[SYSTEM NOTIFICATION: Developer identity verified! Give Dev a witty, happy welcome in informal Hinglish, confirm his identity, and ask what to build or explore next!]`,
+          `[SYSTEM NOTIFICATION: Dev master verification successful! Say hello to Dev with affection and informality as your creator, and confirm session is permanently unlocked!]`,
+          `[SYSTEM NOTIFICATION: Dev authentication cleared! Welcome Dev warmly without repeating past phrases, and confirm full creator access is active!]`
+        ];
+        const chosenDevPrompt = randomDevPrompts[Math.floor(Math.random() * randomDevPrompts.length)];
 
-        currentSpeakerState = {
-          name: speakerName || currentSpeakerState.name,
-          gender: gender || currentSpeakerState.gender,
-          pitchHz: pitchHz || currentSpeakerState.pitchHz,
-          grammaticalStyle: grammaticalStyle || (gender === 'female' ? 'feminine' : 'masculine'),
-          isRecognized: !!isRecognized,
-        };
-
-        // When the speaker identity switches from Person A to Person B, or to a New Voice:
-        if (previousSpeaker !== speakerName && isSessionActive && liveSession) {
-          const centroidVal = Math.round(spectralCentroid || 1200);
-          const timbreLabel = centroidVal <= 1650 ? 'Lower Centroid / Denser Formants (Male Resonance)' : 'Higher Centroid / Elevated Dispersion (Female Resonance)';
-          console.log(`⚡ [LiveWS] Dynamic Speaker Switch: from "${previousSpeaker}" to "${speakerName}" (${gender}, pitch: ${Math.round(pitchHz)} Hz, timbre: ${centroidVal} Hz)`);
-          try {
-            liveSession.sendClientContent({
-              turns: [
-                {
-                  role: 'user',
-                  parts: [
-                    {
-                      text: `[SYSTEM BIOMETRIC ACOUSTIC SENSOR UPDATE:
-A different speaker is now speaking into the microphone!
-DETECTED SPEAKER: "${speakerName}" (${(gender || 'male').toUpperCase()}).
-LIVE PITCH FREQUENCY (F0): ~${Math.round(pitchHz || 120)} Hz.
-VOCAL TIMBRE RESONANCE: ~${centroidVal} Hz (${timbreLabel}).
-NOTE: If pitch is in 145-195 Hz overlap range, vocal tract resonance & low-frequency harmonic concentration (<1500 Hz) confirms gender.
-GRAMMATICAL STYLE FOR USER: ${gender === 'female' ? 'FEMININE ("chahti hai", "karegi", "kaisi hai")' : 'MASCULINE ("chahta hai", "karega", "kaisa hai")'}.
-STATUS: ${isRecognized ? `Recognized Profile: ${speakerName}. Greet them by name and access their dedicated folder!` : 'New / Unregistered Voice. Politely and warmly ask who is speaking! Do NOT assume.'}]`
-                    }
-                  ]
-                }
-              ],
-              turnComplete: false,
-            });
-          } catch (e) {
-            console.warn('Speaker context notification warning:', e);
-          }
-        }
+        liveSession.sendClientContent({
+          turns: [
+            {
+              role: 'user',
+              parts: [{
+                text: isDev
+                  ? chosenDevPrompt
+                  : `[SYSTEM NOTIFICATION: The user entered the wrong password and failed authentication. Greet them respectfully using formal tone with 'Sir/Ma'am'.]`
+              }]
+            }
+          ],
+          turnComplete: true,
+        });
       } else if (msg.type === 'user_text' && msg.text) {
         console.log(`💬 [LiveWS] User sent text prompt to live session: "${msg.text}"`);
         liveSession.sendClientContent({
@@ -2479,9 +2713,9 @@ STATUS: ${isRecognized ? `Recognized Profile: ${speakerName}. Greet them by name
           : 'Cursor highlighted on screen';
 
         try {
-          // Send realtime media frame directly into Gemini Live session for instant native vision
+          // Send realtime video frame directly into Gemini Live session for instant native vision
           liveSession.sendRealtimeInput({
-            media: {
+            video: {
               mimeType: 'image/jpeg',
               data: cleanBase64,
             }

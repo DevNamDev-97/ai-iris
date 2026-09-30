@@ -74,7 +74,7 @@ const MapController: React.FC<{
   return null;
 };
 
-export const GoogleMapModal: React.FC<GoogleMapModalProps> = ({
+const GoogleMapModalComponent: React.FC<GoogleMapModalProps> = ({
   isOpen,
   onClose,
   initialQuery = '',
@@ -107,6 +107,7 @@ export const GoogleMapModal: React.FC<GoogleMapModalProps> = ({
   const [copyFeedback, setCopyFeedback] = useState(false);
   const [activeCategory, setActiveCategory] = useState<string | null>(initialCategory || null);
   const [hasMapLoadError, setHasMapLoadError] = useState(false);
+  const [isListExpandedOnMobile, setIsListExpandedOnMobile] = useState(true);
 
   useEffect(() => {
     const handleAuthError = () => {
@@ -290,9 +291,21 @@ export const GoogleMapModal: React.FC<GoogleMapModalProps> = ({
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-950/80 backdrop-blur-md animate-motion-blur-in">
-      <div className="relative w-full max-w-5xl h-[92vh] max-h-[840px] bg-slate-900 border border-slate-700/80 rounded-2xl sm:rounded-3xl shadow-2xl flex flex-col overflow-hidden text-white motion-blur-glass">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-0 sm:p-4 bg-slate-950/80 backdrop-blur-md animate-motion-blur-in">
+      <div className="relative w-full h-full sm:h-[92vh] sm:max-h-[840px] sm:max-w-5xl bg-slate-900 border-0 sm:border border-slate-700/80 rounded-none sm:rounded-3xl shadow-2xl flex flex-col overflow-hidden text-white motion-blur-glass">
         
+        {/* Top Center Close Button */}
+        <div className="absolute top-2.5 left-1/2 -translate-x-1/2 z-40">
+          <button
+            onClick={onClose}
+            className="flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-bold bg-slate-950/90 hover:bg-rose-950/90 text-slate-200 hover:text-rose-200 border border-slate-700 hover:border-rose-500/60 shadow-xl shadow-black/80 transition-all active:scale-95 group backdrop-blur-md"
+            title="Close Maps Radar"
+          >
+            <X className="w-3.5 h-3.5 text-rose-500 group-hover:scale-110 transition-transform" />
+            <span>Close Map</span>
+          </button>
+        </div>
+
         {/* Header Bar */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-slate-800 bg-slate-950/90 shrink-0">
           <div className="flex items-center gap-2.5">
@@ -408,7 +421,7 @@ export const GoogleMapModal: React.FC<GoogleMapModalProps> = ({
         </div>
 
         {/* Main Workspace: Interactive Map & Side Drawer */}
-        <div className="flex-1 relative flex overflow-hidden">
+        <div className="flex-1 relative flex flex-col md:flex-row overflow-hidden">
           
           {/* Google Map Container with Explicit Height */}
           <div className="flex-1 h-full w-full relative">
@@ -560,11 +573,51 @@ export const GoogleMapModal: React.FC<GoogleMapModalProps> = ({
                 </button>
               </div>
             </div>
+
+            {/* Smartphone Portrait Optimization Overlays */}
+            {searchResults.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setIsListExpandedOnMobile(!isListExpandedOnMobile)}
+                className="md:hidden absolute bottom-4 left-1/2 -translate-x-1/2 z-35 px-4 py-2.5 rounded-full bg-slate-900/95 border border-cyan-500/40 text-xs font-mono font-bold text-cyan-400 shadow-xl backdrop-blur-md flex items-center gap-2 active:scale-95 transition-all"
+              >
+                <Layers className="w-4 h-4 text-cyan-400" />
+                <span>{isListExpandedOnMobile ? 'View Full Map' : `Show Places (${searchResults.length})`}</span>
+              </button>
+            )}
+
+            {selectedPlace && !isListExpandedOnMobile && (
+              <div className="md:hidden absolute bottom-16 inset-x-4 z-30 p-4 rounded-2xl bg-slate-950/95 border border-cyan-500/40 shadow-2xl backdrop-blur-md animate-motion-blur-in text-white">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex-1 min-w-0">
+                    <h4 className="font-bold text-sm leading-snug truncate">{selectedPlace.name}</h4>
+                    <p className="text-xs text-slate-400 mt-1 line-clamp-1">{selectedPlace.address}</p>
+                    <div className="flex items-center gap-1.5 text-xs text-cyan-400 mt-2 font-mono">
+                      <span>⭐ {selectedPlace.rating || '4.0'}</span>
+                      <span className="text-slate-600">·</span>
+                      <span>{selectedPlace.distanceKm || '0.5'} km away</span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      openInGoogleMaps(selectedPlace.lat, selectedPlace.lng, selectedPlace.name);
+                    }}
+                    className="px-3.5 py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-bold font-mono text-xs flex items-center gap-1.5 shadow-lg shadow-cyan-500/20 shrink-0 transition-colors"
+                  >
+                    <Navigation className="w-4 h-4" />
+                    <span>Navigate</span>
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Side Place Details / Search Results Drawer */}
           {searchResults.length > 0 && (
-            <div className="w-80 sm:w-96 bg-slate-950/95 border-l border-slate-800 flex flex-col h-full overflow-hidden shrink-0">
+            <div className={`w-full md:w-80 lg:w-96 bg-slate-950/95 border-t md:border-t-0 md:border-l border-slate-800 flex flex-col md:h-full overflow-hidden shrink-0 transition-all duration-300 ${
+              isListExpandedOnMobile ? 'h-[35vh]' : 'h-0 border-t-0 opacity-0'
+            }`}>
               <div className="p-3 border-b border-slate-800 flex items-center justify-between">
                 <span className="text-xs font-mono font-bold text-slate-300">
                   {searchResults.length} PLACES FOUND
@@ -675,3 +728,5 @@ export const GoogleMapModal: React.FC<GoogleMapModalProps> = ({
     </div>
   );
 };
+
+export const GoogleMapModal = React.memo(GoogleMapModalComponent);

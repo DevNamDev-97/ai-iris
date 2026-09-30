@@ -57,100 +57,10 @@ const STORAGE_KEY_FILES = 'iris_memory_files_v2';
 const STORAGE_KEY_INTERACTIONS = 'iris_memory_interactions_v2';
 const STORAGE_KEY_FACTS = 'iris_memory_facts_v2';
 
-// Seed initial historical files & facts
-const DEFAULT_FILES: StoredFileMemory[] = [
-  {
-    id: 'file-pdf-1',
-    name: 'PDF 1',
-    originalName: 'PDF 1.pdf',
-    extension: 'pdf',
-    category: 'document',
-    lastKnownLocation: 'Downloads folder in Google Files',
-    folderPath: '/storage/emulated/0/Download/PDF 1.pdf',
-    appSource: 'Google Files (Files by Google)',
-    associatedAction: 'openApp: Google Files > Downloads',
-    contentSnippet: 'Product Blueprint & Architecture Specifications for I.R.I.S. Assistant v3.5.',
-    sizeDescription: '2.4 MB',
-    mimeType: 'application/pdf',
-    lastAccessed: Date.now() - 1000 * 60 * 60 * 3,
-    sessionNotes: 'User previously downloaded PDF 1 into the Downloads directory in Google Files and asked Iris to remember its location.',
-  },
-  {
-    id: 'file-project-specs',
-    name: 'Project Specs',
-    originalName: 'Project_Specs.pdf',
-    extension: 'pdf',
-    category: 'document',
-    lastKnownLocation: 'Documents folder in Google Drive',
-    folderPath: 'Google Drive/Documents/Project_Specs.pdf',
-    appSource: 'Google Drive',
-    associatedAction: 'openApp: Google Drive',
-    contentSnippet: 'Complete technical documentation and API architecture diagrams.',
-    sizeDescription: '4.8 MB',
-    mimeType: 'application/pdf',
-    lastAccessed: Date.now() - 1000 * 60 * 60 * 24,
-    sessionNotes: 'Shared during project review with Devansh Namdev.',
-  },
-  {
-    id: 'file-dev-notes',
-    name: 'Dev Notes',
-    originalName: 'Dev_Ideas.txt',
-    extension: 'txt',
-    category: 'code',
-    lastKnownLocation: 'Notes folder in Google Files',
-    folderPath: 'Google Files/Notes/Dev_Ideas.txt',
-    appSource: 'Google Files',
-    associatedAction: 'openApp: Google Files',
-    contentSnippet: 'Ideas for Iris: Cross-session memory database, long-term learning engine.',
-    sizeDescription: '12 KB',
-    mimeType: 'text/plain',
-    lastAccessed: Date.now() - 1000 * 60 * 60 * 48,
-    sessionNotes: 'Created in previous chat session.',
-  },
-];
-
-const DEFAULT_FACTS: LearnedFact[] = [
-  {
-    id: 'fact-creator',
-    key: 'Creator',
-    value: 'Dev is Iris\'s creator (remembered in database; only mentioned when explicitly asked).',
-    category: 'personal',
-    timestamp: Date.now() - 1000 * 60 * 60 * 24 * 7,
-  },
-  {
-    id: 'fact-pdf-location',
-    key: 'PDF 1 Location',
-    value: 'PDF 1 is saved in the Downloads folder inside Google Files (/storage/emulated/0/Download/PDF 1.pdf).',
-    category: 'file',
-    timestamp: Date.now() - 1000 * 60 * 60 * 5,
-  },
-];
-
-const DEFAULT_INTERACTIONS: StoredInteractionMemory[] = [
-  {
-    id: 'mem-1',
-    timestamp: Date.now() - 1000 * 60 * 60 * 5,
-    role: 'user',
-    type: 'chat',
-    text: 'I just downloaded PDF 1 from the browser. It went into the Downloads folder in Google Files.',
-    entities: {
-      files: ['PDF 1', 'PDF 1.pdf'],
-      apps: ['Google Files', 'Downloads', 'Browser'],
-      locations: ['Downloads folder in Google Files'],
-    },
-  },
-  {
-    id: 'mem-2',
-    timestamp: Date.now() - 1000 * 60 * 60 * 5 + 1500,
-    role: 'iris',
-    type: 'chat',
-    text: 'Samajh gayi! Maine yaad rakh liya hai ki PDF 1 tere Google Files ke Downloads folder mein saved hai. Jab bhi chahiye ho, bas bol dena!',
-    entities: {
-      files: ['PDF 1'],
-      locations: ['Downloads folder in Google Files'],
-    },
-  },
-];
+// Default clean initial memory (No mock files or fake memories)
+const DEFAULT_FILES: StoredFileMemory[] = [];
+const DEFAULT_FACTS: LearnedFact[] = [];
+const DEFAULT_INTERACTIONS: StoredInteractionMemory[] = [];
 
 export class CrossSessionMemoryEngine {
   private files: StoredFileMemory[] = [];
@@ -168,25 +78,40 @@ export class CrossSessionMemoryEngine {
 
       const savedFiles = localStorage.getItem(STORAGE_KEY_FILES);
       if (savedFiles) {
-        this.files = JSON.parse(savedFiles);
+        try {
+          const parsed = JSON.parse(savedFiles);
+          this.files = Array.isArray(parsed) ? parsed.filter((f: any) => !f.id?.startsWith('file-pdf') && !f.name?.includes('PDF 1')) : [];
+        } catch {
+          this.files = [];
+        }
       } else {
-        this.files = [...DEFAULT_FILES];
+        this.files = [];
         this.saveFiles();
       }
 
       const savedInteractions = localStorage.getItem(STORAGE_KEY_INTERACTIONS);
       if (savedInteractions) {
-        this.interactions = JSON.parse(savedInteractions);
+        try {
+          const parsed = JSON.parse(savedInteractions);
+          this.interactions = Array.isArray(parsed) ? parsed.filter((i: any) => !i.text?.includes('PDF 1')) : [];
+        } catch {
+          this.interactions = [];
+        }
       } else {
-        this.interactions = [...DEFAULT_INTERACTIONS];
+        this.interactions = [];
         this.saveInteractions();
       }
 
       const savedFacts = localStorage.getItem(STORAGE_KEY_FACTS);
       if (savedFacts) {
-        this.facts = JSON.parse(savedFacts);
+        try {
+          const parsed = JSON.parse(savedFacts);
+          this.facts = Array.isArray(parsed) ? parsed.filter((f: any) => !f.key?.includes('PDF') && !f.value?.includes('PDF 1')) : [];
+        } catch {
+          this.facts = [];
+        }
       } else {
-        this.facts = [...DEFAULT_FACTS];
+        this.facts = [];
         this.saveFacts();
       }
 
@@ -194,9 +119,9 @@ export class CrossSessionMemoryEngine {
       this.triggerServerSync();
     } catch (e) {
       console.warn('Could not load cross-session memory from storage:', e);
-      this.files = [...DEFAULT_FILES];
-      this.interactions = [...DEFAULT_INTERACTIONS];
-      this.facts = [...DEFAULT_FACTS];
+      this.files = [];
+      this.interactions = [];
+      this.facts = [];
     }
   }
 
