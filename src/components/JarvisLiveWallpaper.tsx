@@ -4,6 +4,7 @@ import { triggerHaptic } from '../utils/haptics.ts';
 interface JarvisLiveWallpaperProps {
   audioLevel?: number; // 0.0 to 1.0
   isLiveActive?: boolean;
+  theme?: 'light' | 'dark';
 }
 
 interface RealisticWaterRipple {
@@ -35,11 +36,18 @@ interface MotionParticle {
 const JarvisLiveWallpaperComponent: React.FC<JarvisLiveWallpaperProps> = ({
   audioLevel = 0,
   isLiveActive = false,
+  theme = 'light',
 }) => {
+  const isDark = theme === 'dark';
+  const themeRef = useRef<'light' | 'dark'>(theme);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const audioLevelRef = useRef<number>(audioLevel);
   const isLiveActiveRef = useRef<boolean>(isLiveActive);
   const waterRipplesRef = useRef<RealisticWaterRipple[]>([]);
+
+  useEffect(() => {
+    themeRef.current = theme;
+  }, [theme]);
 
   // Sync refs without tearing down canvas loop
   useEffect(() => {
@@ -136,22 +144,31 @@ const JarvisLiveWallpaperComponent: React.FC<JarvisLiveWallpaperProps> = ({
       const cx = width / 2;
       const cy = height / 2;
 
-      // 1. Base Clean White Canvas Background
-      ctx.fillStyle = '#ffffff';
+      const isDarkActive = themeRef.current === 'dark';
+
+      // 1. Base Canvas Background (Deep Slate #020617 in Dark Mode / White #ffffff in Light Mode)
+      ctx.fillStyle = isDarkActive ? '#020617' : '#ffffff';
       ctx.fillRect(0, 0, width, height);
 
-      // 2. Smooth Radial Sky-Blue Ambient Bloom
+      // 2. Smooth Radial Sky-Blue / Cyber-Cyan Ambient Bloom
       const maxDim = Math.max(width, height);
       const bloomRadius = maxDim * (0.68 + smoothAudio * 0.18);
       const baseGlow = ctx.createRadialGradient(cx, cy, 30, cx, cy, bloomRadius);
 
-      const centerAlpha = 0.09 + smoothAudio * 0.24;
-      const midAlpha = 0.035 + smoothAudio * 0.09;
+      const centerAlpha = isDarkActive ? 0.18 + smoothAudio * 0.3 : 0.09 + smoothAudio * 0.24;
+      const midAlpha = isDarkActive ? 0.08 + smoothAudio * 0.15 : 0.035 + smoothAudio * 0.09;
 
-      baseGlow.addColorStop(0, `rgba(14, 165, 233, ${centerAlpha})`);
-      baseGlow.addColorStop(0.35, `rgba(59, 130, 246, ${midAlpha})`);
-      baseGlow.addColorStop(0.75, `rgba(248, 250, 252, 0.96)`);
-      baseGlow.addColorStop(1, '#ffffff');
+      if (isDarkActive) {
+        baseGlow.addColorStop(0, `rgba(6, 182, 212, ${centerAlpha})`);
+        baseGlow.addColorStop(0.35, `rgba(14, 165, 233, ${midAlpha})`);
+        baseGlow.addColorStop(0.75, `rgba(15, 23, 42, 0.98)`);
+        baseGlow.addColorStop(1, '#020617');
+      } else {
+        baseGlow.addColorStop(0, `rgba(14, 165, 233, ${centerAlpha})`);
+        baseGlow.addColorStop(0.35, `rgba(59, 130, 246, ${midAlpha})`);
+        baseGlow.addColorStop(0.75, `rgba(248, 250, 252, 0.96)`);
+        baseGlow.addColorStop(1, '#ffffff');
+      }
 
       ctx.fillStyle = baseGlow;
       ctx.fillRect(0, 0, width, height);
@@ -428,15 +445,25 @@ const JarvisLiveWallpaperComponent: React.FC<JarvisLiveWallpaperProps> = ({
   }, []);
 
   return (
-    <div className="fixed inset-0 z-0 overflow-hidden select-none bg-white">
+    <div className={`fixed inset-0 z-0 overflow-hidden select-none pointer-events-none transition-colors duration-500 ${
+      isDark ? 'bg-slate-950' : 'bg-white'
+    }`}>
       {/* 120fps Smooth Interactive Canvas */}
-      <canvas ref={canvasRef} className="absolute inset-0 w-full h-full block" />
+      <canvas ref={canvasRef} className="absolute inset-0 w-full h-full block pointer-events-none" />
 
       {/* Modern Sleek HUD Corner Accents */}
-      <div className="absolute top-4 left-4 w-6 h-6 border-t-2 border-l-2 border-slate-200/80 pointer-events-none rounded-tl-sm transition-colors duration-300" />
-      <div className="absolute top-4 right-4 w-6 h-6 border-t-2 border-r-2 border-slate-200/80 pointer-events-none rounded-tr-sm transition-colors duration-300" />
-      <div className="absolute bottom-4 left-4 w-6 h-6 border-b-2 border-l-2 border-slate-200/80 pointer-events-none rounded-bl-sm transition-colors duration-300" />
-      <div className="absolute bottom-4 right-4 w-6 h-6 border-b-2 border-r-2 border-slate-200/80 pointer-events-none rounded-br-sm transition-colors duration-300" />
+      <div className={`absolute top-4 left-4 w-6 h-6 border-t-2 border-l-2 pointer-events-none rounded-tl-sm transition-colors duration-300 ${
+        isDark ? 'border-cyan-500/30' : 'border-slate-200/80'
+      }`} />
+      <div className={`absolute top-4 right-4 w-6 h-6 border-t-2 border-r-2 pointer-events-none rounded-tr-sm transition-colors duration-300 ${
+        isDark ? 'border-cyan-500/30' : 'border-slate-200/80'
+      }`} />
+      <div className={`absolute bottom-4 left-4 w-6 h-6 border-b-2 border-l-2 pointer-events-none rounded-bl-sm transition-colors duration-300 ${
+        isDark ? 'border-cyan-500/30' : 'border-slate-200/80'
+      }`} />
+      <div className={`absolute bottom-4 right-4 w-6 h-6 border-b-2 border-r-2 pointer-events-none rounded-br-sm transition-colors duration-300 ${
+        isDark ? 'border-cyan-500/30' : 'border-slate-200/80'
+      }`} />
     </div>
   );
 };

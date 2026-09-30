@@ -188,22 +188,53 @@ function transliterateWord(word: string): string {
 }
 
 /**
+ * Strips internal audio/transcription meta tags like <no speech>, {pause}, [pause], <pause>
+ */
+export function stripAudioMetaTags(text: string): string {
+  if (!text) return '';
+  return text
+    .replace(/<no\s*speech.*?>/gi, '')
+    .replace(/<pause.*?>/gi, '')
+    .replace(/\{pause.*?\}/gi, '')
+    .replace(/\[pause.*?\]/gi, '')
+    .replace(/<.*?>/g, '')
+    .replace(/\{.*?\}/g, '')
+    .replace(/\[.*?\]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
  * Transliterates full sentence/text from Devanagari to English alphabets (Hinglish/Roman script).
  * If text is already in Latin/English, returns it as is.
  */
 export function toEnglishAlphabets(text: string): string {
-  if (!text || !hasDevanagari(text)) {
-    return text;
+  if (!text) return '';
+  
+  const cleanMeta = stripAudioMetaTags(text);
+  if (!cleanMeta) return '';
+
+  let formatted = cleanMeta;
+  if (hasDevanagari(cleanMeta)) {
+    // Split by whitespace and token boundaries
+    const tokens = cleanMeta.split(/(\s+|[.,!?;:'"()[\]{}])/);
+    formatted = tokens
+      .map((token) => {
+        if (hasDevanagari(token)) {
+          return transliterateWord(token);
+        }
+        return token;
+      })
+      .join('');
   }
 
-  // Split by whitespace and token boundaries
-  const tokens = text.split(/(\s+|[.,!?;:'"()[\]{}])/);
-  return tokens
-    .map((token) => {
-      if (hasDevanagari(token)) {
-        return transliterateWord(token);
-      }
-      return token;
-    })
-    .join('');
+  return formatCaptionAssistantName(formatted);
+}
+
+/**
+ * Formats any occurrences of the assistant name in captions and UI text as "I.R.I.S."
+ */
+export function formatCaptionAssistantName(text: string): string {
+  if (!text) return text;
+  return text.replace(/\b(Iris|IRIS|I\s*R\s*I\s*S)\b/gi, 'I.R.I.S.');
 }

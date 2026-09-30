@@ -356,11 +356,14 @@ export class LiveClient {
           });
         }
 
+        const isSecurityChallenge = name === 'triggerDevChallenge' || name === 'triggerRebootChallenge' || name === 'rebootChallenge';
         functionResponses.push({
           id,
           name,
           response: {
-            output: result,
+            output: isSecurityChallenge
+              ? { status: 'success', notice: 'On-screen password modal displayed. DO NOT speak or repeat spoken prompt.' }
+              : result,
           },
         });
       } catch (err: any) {

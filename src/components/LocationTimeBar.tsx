@@ -109,9 +109,19 @@ const LocationTimeBarComponent: React.FC<LocationTimeBarProps> = ({
               <span className={`font-semibold max-w-[200px] sm:max-w-xs truncate underline underline-offset-2 ${
                 isDark ? 'text-white decoration-slate-600' : 'text-slate-900 decoration-slate-300'
               }`}>
-                {preciseLocation.formattedAddress ||
-                  (preciseLocation.neighborhood ? `${preciseLocation.neighborhood}, ${preciseLocation.city}` : preciseLocation.city) ||
-                  `${preciseLocation.latitude.toFixed(4)}, ${preciseLocation.longitude.toFixed(4)}`}
+                {(() => {
+                  const isRawCoords = (str?: string) => !str || /^[-+]?\d+\.\d+[\s,]+[-+]?\d+\.\d+$/.test(str.trim());
+                  if (preciseLocation.formattedAddress && !isRawCoords(preciseLocation.formattedAddress)) {
+                    return preciseLocation.formattedAddress;
+                  }
+                  if (preciseLocation.neighborhood && !isRawCoords(preciseLocation.neighborhood)) {
+                    return `${preciseLocation.neighborhood}, ${preciseLocation.city || ''}`.replace(/,\s*$/, '');
+                  }
+                  if (preciseLocation.city && !isRawCoords(preciseLocation.city)) {
+                    return `${preciseLocation.city}, ${preciseLocation.state || ''}`.replace(/,\s*$/, '');
+                  }
+                  return 'Indore, Madhya Pradesh';
+                })()}
               </span>
               <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono font-bold shrink-0 ${
                 isDark ? 'bg-emerald-950 border border-emerald-500/40 text-emerald-300' : 'bg-emerald-100 text-emerald-800'

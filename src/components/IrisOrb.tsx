@@ -211,8 +211,17 @@ const IrisOrbComponent: React.FC<IrisOrbProps> = ({ state, audioLevel, onClick, 
     <div className="flex flex-col items-center justify-center select-none relative my-2">
       {/* Clickable Floating Harmonic Wave Canvas Container */}
       <div
+        role="button"
+        tabIndex={0}
+        aria-label={state === 'IDLE' || state === 'ERROR' ? 'Tap to start voice session' : 'Tap to disconnect voice session'}
         onClick={handleContainerClick}
-        className="relative w-80 h-80 sm:w-96 sm:h-96 md:w-[440px] md:h-[440px] flex items-center justify-center cursor-pointer group transition-transform duration-300 active:scale-95 will-change-transform"
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            onClick();
+          }
+        }}
+        className="relative w-80 h-80 sm:w-96 sm:h-96 md:w-[440px] md:h-[440px] flex items-center justify-center cursor-pointer group transition-transform duration-300 active:scale-95 will-change-transform outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 rounded-full"
       >
         {/* Click Shockwave Ripples */}
         {ripples.map((ripple) => (

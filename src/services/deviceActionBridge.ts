@@ -2416,6 +2416,33 @@ export class DeviceActionBridge {
         return this.updateNote(args.noteId || args.id, args.title, args.content);
 
       // --- CROSS-SESSION MEMORY DATABASE & FILE RETRIEVAL ---
+      case 'openConversationHistory':
+      case 'openChatHistory':
+      case 'showConversationHistory':
+      case 'showChatHistory':
+        return {
+          action: 'openConversationHistory',
+          success: true,
+          message: `Opening conversation history database${args.personName ? ` for ${args.personName}` : ''}.`,
+          data: {
+            personName: args.personName || args.name || 'All',
+            query: args.query || '',
+          },
+        };
+
+      case 'triggerDeleteHistoryChallenge':
+      case 'deleteConversationHistory':
+      case 'deleteChatHistory':
+        return {
+          action: 'triggerDeleteHistoryChallenge',
+          success: true,
+          message: `Triggering security verification to delete history for ${args.personName || 'All'}.`,
+          data: {
+            personName: args.personName || args.name || 'All',
+            reason: args.reason || 'User requested history deletion',
+          },
+        };
+
       case 'retrieveFile':
         return this.retrieveFile(args.fileName || args.file || args.query || args.name);
 

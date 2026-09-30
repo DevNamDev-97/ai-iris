@@ -27,6 +27,9 @@ export interface StoredInteractionMemory {
   role: 'user' | 'iris';
   type: 'speech_log' | 'chat';
   text: string;
+  speakerName?: string;
+  isTemporary?: boolean;
+  expiresAt?: number;
   entities?: {
     files?: string[];
     apps?: string[];
@@ -93,7 +96,15 @@ export class CrossSessionMemoryEngine {
       if (savedInteractions) {
         try {
           const parsed = JSON.parse(savedInteractions);
-          this.interactions = Array.isArray(parsed) ? parsed.filter((i: any) => !i.text?.includes('PDF 1')) : [];
+          const now = Date.now();
+          this.interactions = Array.isArray(parsed)
+            ? parsed.filter((i: StoredInteractionMemory) => {
+                if (i.text?.includes('PDF 1')) return false;
+                // Auto-cleanup temporary 15-day guest entries
+                if (i.isTemporary && i.expiresAt && now > i.expiresAt) return false;
+                return true;
+              })
+            : [];
         } catch {
           this.interactions = [];
         }
@@ -264,15 +275,15 @@ export class CrossSessionMemoryEngine {
   /**
    * Records a live voice speech log turn
    */
-  recordSpeechLog(role: 'user' | 'iris', text: string): void {
+  recordSpeechLog(role: 'user' | 'iris', text: string, speakerName?: string, isTemporary?: boolean): void {
     if (!text || !text.trim()) return;
-    this.recordInteractionInternal(role, 'speech_log', text.trim());
+    this.recordInteractionInternal(role, 'speech_log', text.trim(), undefined, speakerName, isTemporary);
   }
 
   /**
    * Records a chat interaction turn
    */
-  recordInteraction(role: 'user' | 'iris', text: string, attachedFiles?: Array<{ name: string; mimeType: string }>): void {
+  recordInteraction(role: 'user' | 'iris', text: string, attachedFiles?: Array<{ name: string; mimeType: string }>, speakerName?: string, isTemporary?: boolean): void {
     if (!text && (!attachedFiles || attachedFiles.length === 0)) return;
 
     const fileNames: string[] = [];
@@ -293,10 +304,17 @@ export class CrossSessionMemoryEngine {
       });
     }
 
-    this.recordInteractionInternal(role, 'chat', text, fileNames);
+    this.recordInteractionInternal(role, 'chat', text, fileNames, speakerName, isTemporary);
   }
 
-  private recordInteractionInternal(role: 'user' | 'iris', type: 'speech_log' | 'chat', text: string, attachedFileNames?: string[]): void {
+  private recordInteractionInternal(
+    role: 'user' | 'iris',
+    type: 'speech_log' | 'chat',
+    text: string,
+    attachedFileNames?: string[],
+    explicitSpeakerName?: string,
+    explicitIsTemp?: boolean
+  ): void {
     const lower = text.toLowerCase();
     let detectedLocation = '';
     if (lower.includes('google files') || lower.includes('downloads folder') || lower.includes('download')) {
@@ -309,12 +327,31 @@ export class CrossSessionMemoryEngine {
 
     const learnedFacts = this.extractAndLearnFacts(role, text);
 
+    let speaker = explicitSpeakerName;
+    if (!speaker) {
+      if (typeof window !== 'undefined') {
+        const activeName = (window as any).__irisActiveSpeakerName;
+        if (activeName) speaker = activeName;
+      }
+      if (!speaker) {
+        speaker = role === 'iris' ? 'I.R.I.S.' : 'Dev';
+      }
+    }
+
+    const isUnknown = !speaker || speaker.toLowerCase().includes('unknown') || speaker.toLowerCase().includes('guest');
+    const finalSpeakerName = isUnknown ? 'Unknown' : speaker;
+    const isTemporary = explicitIsTemp !== undefined ? explicitIsTemp : isUnknown;
+    const expiresAt = isTemporary ? Date.now() + 15 * 24 * 60 * 60 * 1000 : undefined; // 15 days
+
     const newMem: StoredInteractionMemory = {
       id: `mem-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
       timestamp: Date.now(),
       role,
       type,
       text,
+      speakerName: finalSpeakerName,
+      isTemporary,
+      expiresAt,
       entities: {
         files: attachedFileNames && attachedFileNames.length > 0 ? attachedFileNames : undefined,
         locations: detectedLocation ? [detectedLocation] : undefined,
@@ -325,6 +362,31 @@ export class CrossSessionMemoryEngine {
     this.interactions.push(newMem);
     this.saveInteractions();
     this.triggerServerSync();
+  }
+
+  /**
+   * Delete chat history for a specific person or all
+   */
+  public deleteInteractionsForPerson(personName: string): number {
+    const initialLen = this.interactions.length;
+    const cleanName = (personName || '').trim().toLowerCase();
+
+    if (cleanName === 'all' || cleanName === '*' || cleanName === 'everyone') {
+      this.interactions = [];
+    } else {
+      this.interactions = this.interactions.filter((i) => {
+        const name = (i.speakerName || (i.role === 'iris' ? 'I.R.I.S.' : 'Dev')).toLowerCase();
+        if (cleanName === 'unknown' && name === 'unknown') return false;
+        if (cleanName === 'dev' && (name === 'dev' || name === 'you')) return false;
+        return name !== cleanName;
+      });
+    }
+
+    const removedCount = initialLen - this.interactions.length;
+    this.saveInteractions();
+    this.triggerServerSync();
+    console.log(`🗑️ [CrossSessionMemory] Deleted ${removedCount} interactions for "${personName}".`);
+    return removedCount;
   }
 
   /**

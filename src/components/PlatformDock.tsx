@@ -27,6 +27,7 @@ interface PlatformDockProps {
   currentPlatform: 'auto' | 'windows' | 'android';
   onSelectPlatform: (platform: 'auto' | 'windows' | 'android') => void;
   onOpenChat?: () => void;
+  theme?: 'light' | 'dark';
 }
 
 const PlatformDockComponent: React.FC<PlatformDockProps> = ({
@@ -35,7 +36,9 @@ const PlatformDockComponent: React.FC<PlatformDockProps> = ({
   currentPlatform,
   onSelectPlatform,
   onOpenChat,
+  theme = 'light',
 }) => {
+  const isDark = theme === 'dark';
   const [isExpanded, setIsExpanded] = useState(false);
   const isWindowsActive = deviceBridge.isWindows();
 
@@ -70,25 +73,37 @@ const PlatformDockComponent: React.FC<PlatformDockProps> = ({
 
   return (
     <div className="w-full max-w-5xl mx-auto px-3 sm:px-4 z-20">
-      <div className="bg-white/45 hover:bg-white/55 border border-white/70 rounded-2xl backdrop-blur-xl shadow-[0_20px_50px_rgba(14,165,233,0.18)] hover:shadow-[0_25px_60px_rgba(14,165,233,0.25)] ring-1 ring-white/60 overflow-hidden transition-all duration-300">
+      <div className={`rounded-2xl backdrop-blur-xl transition-all duration-300 overflow-hidden ${
+        isDark
+          ? 'bg-slate-900/90 border border-slate-700/80 shadow-[0_20px_50px_rgba(6,182,212,0.15)] ring-1 ring-slate-800'
+          : 'bg-white/45 hover:bg-white/55 border border-white/70 shadow-[0_20px_50px_rgba(14,165,233,0.18)] hover:shadow-[0_25px_60px_rgba(14,165,233,0.25)] ring-1 ring-white/60'
+      }`}>
         {/* Dock Header Bar */}
-        <div className="px-3.5 py-2 bg-slate-900/5 backdrop-blur-md border-b border-slate-200/50 flex items-center justify-between">
+        <div className={`px-3.5 py-2 backdrop-blur-md border-b flex items-center justify-between ${
+          isDark ? 'bg-slate-950/60 border-slate-800' : 'bg-slate-900/5 border-slate-200/50'
+        }`}>
           <div className="flex items-center gap-2">
-            <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-blue-50/80 border border-blue-200 text-[10px] font-mono text-blue-700 font-bold shadow-2xs">
+            <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full border text-[10px] font-mono font-bold shadow-2xs ${
+              isDark
+                ? 'bg-cyan-950/80 border-cyan-500/40 text-cyan-300'
+                : 'bg-blue-50/80 border-blue-200 text-blue-700'
+            }`}>
               {isWindowsActive ? (
                 <>
-                  <Monitor className="w-3 h-3 text-blue-600" />
+                  <Monitor className="w-3 h-3 text-blue-400" />
                   <span>WINDOWS 10/11 AUTOMATION</span>
                 </>
               ) : (
                 <>
-                  <Smartphone className="w-3 h-3 text-emerald-600" />
+                  <Smartphone className="w-3 h-3 text-emerald-400" />
                   <span>ANDROID SMARTPHONE AUTOMATION</span>
                 </>
               )}
             </div>
 
-            <span className="hidden sm:inline text-[11px] text-slate-600 font-mono font-medium">
+            <span className={`hidden sm:inline text-[11px] font-mono font-medium ${
+              isDark ? 'text-slate-400' : 'text-slate-600'
+            }`}>
               Voice automation for apps, links & system tools
             </span>
           </div>
@@ -96,14 +111,16 @@ const PlatformDockComponent: React.FC<PlatformDockProps> = ({
           {/* Platform Switcher & Expand Toggle */}
           <div className="flex items-center gap-1.5">
             {/* Mode Selector Buttons */}
-            <div className="flex items-center bg-slate-200/60 p-0.5 rounded-lg border border-slate-300/60 text-[10px] font-mono backdrop-blur-sm">
+            <div className={`flex items-center p-0.5 rounded-lg border text-[10px] font-mono backdrop-blur-sm ${
+              isDark ? 'bg-slate-800/80 border-slate-700' : 'bg-slate-200/60 border-slate-300/60'
+            }`}>
               <button
                 type="button"
                 onClick={() => { triggerHaptic('light'); onSelectPlatform('auto'); }}
                 className={`px-2 py-0.5 rounded-md spring-button transition-all ${
                   currentPlatform === 'auto'
                     ? 'bg-blue-600 text-white font-bold shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900'
+                    : isDark ? 'text-slate-300 hover:text-white' : 'text-slate-600 hover:text-slate-900'
                 }`}
                 title="Auto-detect operating system"
               >
@@ -115,7 +132,7 @@ const PlatformDockComponent: React.FC<PlatformDockProps> = ({
                 className={`px-2 py-0.5 rounded-md spring-button transition-all flex items-center gap-1 ${
                   currentPlatform === 'windows'
                     ? 'bg-blue-600 text-white font-bold shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900'
+                    : isDark ? 'text-slate-300 hover:text-white' : 'text-slate-600 hover:text-slate-900'
                 }`}
                 title="Force Windows PC mode"
               >
@@ -128,7 +145,7 @@ const PlatformDockComponent: React.FC<PlatformDockProps> = ({
                 className={`px-2 py-0.5 rounded-md spring-button transition-all flex items-center gap-1 ${
                   currentPlatform === 'android'
                     ? 'bg-blue-600 text-white font-bold shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900'
+                    : isDark ? 'text-slate-300 hover:text-white' : 'text-slate-600 hover:text-slate-900'
                 }`}
                 title="Force Android Mobile mode"
               >
@@ -141,14 +158,18 @@ const PlatformDockComponent: React.FC<PlatformDockProps> = ({
             <button
               type="button"
               onClick={() => { triggerHaptic('light'); setIsExpanded(!isExpanded); }}
-              className="p-1.5 rounded-xl text-slate-600 hover:text-slate-900 hover:bg-slate-200/60 transition-all spring-button flex items-center gap-1"
+              className={`p-1.5 rounded-xl transition-all spring-button flex items-center gap-1 ${
+                isDark ? 'text-slate-300 hover:text-white hover:bg-slate-800' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+              }`}
               title={isExpanded ? 'Collapse Quick Launch Dock' : 'Expand Quick Launch Dock'}
             >
-              <span className="text-[10px] font-mono font-bold hidden sm:inline text-blue-600">
+              <span className={`text-[10px] font-mono font-bold hidden sm:inline ${
+                isDark ? 'text-cyan-400' : 'text-blue-600'
+              }`}>
                 {isExpanded ? 'Hide Apps' : 'Quick Apps'}
               </span>
               <div className={`transition-transform duration-300 ${isExpanded ? 'rotate-180' : 'rotate-0'}`}>
-                <ChevronDown className="w-4 h-4 text-blue-600" />
+                <ChevronDown className={`w-4 h-4 ${isDark ? 'text-cyan-400' : 'text-blue-600'}`} />
               </div>
             </button>
 
@@ -157,7 +178,11 @@ const PlatformDockComponent: React.FC<PlatformDockProps> = ({
               <button
                 type="button"
                 onClick={() => { triggerHaptic('medium'); onOpenChat(); }}
-                className="p-1.5 rounded-xl border border-blue-500/30 bg-blue-500/10 hover:bg-blue-500/20 text-blue-600 hover:text-blue-700 transition-all spring-button flex items-center justify-center shadow-xs"
+                className={`p-1.5 rounded-xl border transition-all spring-button flex items-center justify-center shadow-xs ${
+                  isDark
+                    ? 'border-cyan-500/40 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400'
+                    : 'border-blue-500/30 bg-blue-500/10 hover:bg-blue-500/20 text-blue-600 hover:text-blue-700'
+                }`}
                 title="Open Multimodal Chat Panel"
               >
                 <MessageSquare className="w-4 h-4" />
@@ -169,7 +194,11 @@ const PlatformDockComponent: React.FC<PlatformDockProps> = ({
         {/* Quick App Launcher Grid with Smooth Motion Blur Tray Expansion */}
         <div
           className={`grid transition-all duration-300 ease-out overflow-hidden ${
-            isExpanded ? 'grid-rows-[1fr] opacity-100 p-3 border-t border-slate-100/60 bg-white/40 backdrop-blur-md animate-tray-blur' : 'grid-rows-[0fr] opacity-0 p-0 border-t-0'
+            isExpanded
+              ? `grid-rows-[1fr] opacity-100 p-3 border-t animate-tray-blur ${
+                  isDark ? 'border-slate-800 bg-slate-950/70' : 'border-slate-100/60 bg-white/40 backdrop-blur-md'
+                }`
+              : 'grid-rows-[0fr] opacity-0 p-0 border-t-0'
           }`}
         >
           <div className="min-h-0 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2 text-xs">
@@ -187,16 +216,26 @@ const PlatformDockComponent: React.FC<PlatformDockProps> = ({
                   }
                   onExecuteApp(app.id);
                 }}
-                className="p-2.5 rounded-xl bg-white/70 hover:bg-blue-50/90 border border-white/80 hover:border-blue-300 transition-all flex items-center gap-2 group text-left shadow-2xs hover:shadow-md spring-button animate-item-blur"
+                className={`p-2.5 rounded-xl border transition-all flex items-center gap-2 group text-left shadow-2xs hover:shadow-md spring-button animate-item-blur ${
+                  isDark
+                    ? 'bg-slate-800/80 hover:bg-slate-700/80 border-slate-700/80 hover:border-cyan-500/50 text-slate-100'
+                    : 'bg-white/70 hover:bg-blue-50/90 border-white/80 hover:border-blue-300 text-slate-900'
+                }`}
               >
-                <div className="p-1.5 rounded-lg bg-white border border-slate-200/80 group-hover:border-blue-300 group-hover:scale-110 transition-all shrink-0">
+                <div className={`p-1.5 rounded-lg border group-hover:scale-110 transition-all shrink-0 ${
+                  isDark ? 'bg-slate-900 border-slate-700 group-hover:border-cyan-400' : 'bg-white border-slate-200/80 group-hover:border-blue-300'
+                }`}>
                   {app.icon}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <div className="font-bold text-[11px] text-slate-900 truncate group-hover:text-blue-600">
+                  <div className={`font-bold text-[11px] truncate ${
+                    isDark ? 'text-white group-hover:text-cyan-400' : 'text-slate-900 group-hover:text-blue-600'
+                  }`}>
                     {app.name}
                   </div>
-                  <div className="text-[9px] text-slate-500 font-mono truncate">
+                  <div className={`text-[9px] font-mono truncate ${
+                    isDark ? 'text-slate-400' : 'text-slate-500'
+                  }`}>
                     Launch app
                   </div>
                 </div>

@@ -20,6 +20,7 @@ import {
   ChevronUp,
   Terminal,
   History,
+  X,
 } from 'lucide-react';
 import { screenShareService } from './services/screenShareService.ts';
 import { LiveClient, AssistantState } from './services/liveClient.ts';
@@ -27,6 +28,8 @@ import { DeviceActionBridge, ToolExecutionResult, Contact } from './services/dev
 import { IrisOrb } from './components/IrisOrb.tsx';
 import { JarvisLiveWallpaper } from './components/JarvisLiveWallpaper.tsx';
 import { ConversationHistoryPanel, HistoryTurn } from './components/ConversationHistoryPanel.tsx';
+import { ConversationHistoryModal } from './components/ConversationHistoryModal.tsx';
+import { DeleteHistoryModal } from './components/DeleteHistoryModal.tsx';
 import { RippleButton } from './components/RippleButton.tsx';
 import { SpeakerDiagnostic } from './components/SpeakerDiagnostic.tsx';
 import { ActionFeedback } from './components/ActionFeedback.tsx';
@@ -53,12 +56,10 @@ import { toEnglishAlphabets } from './utils/transliteration.ts';
 import { crossSessionMemory } from './services/crossSessionMemory.ts';
 
 const BEFORE_DEV_IDENTIFICATION_MESSAGES = [
-  "To identify you as Dev, kindly write the password in the pop-up.",
-  "Creator identification verify karne ke liye screen ke popup mein password enter kar do yaar.",
-  "Arey Dev, pehchaan confirm karne ke liye popup mein password daal de fir tu-tadak se baat karte hain!",
-  "Security verification: Please write the developer password in the on-screen pop-up.",
-  "Apni creator identity verify karne ke liye screen par aaye password box me code likh do.",
-  "Dev verification required: kindly fill the master password in the prompt.",
+  "To identify you as Dev, please write the password in the popup I generated.",
+  "Aapko Dev ke roop mein verify karne ke liye, kripya screen par aaye pop-up mein password enter kijiye.",
+  "To verify your developer identity, please enter the password in the pop-up window.",
+  "Dev identity verification: Kripya screen ke pop-up mein password enter kijiye.",
 ];
 
 const AFTER_DEV_IDENTIFICATION_MESSAGES = [
@@ -83,6 +84,10 @@ export default function App() {
   const [isChatOpen, setIsChatOpen] = useState<boolean>(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
   const [isInfoOpen, setIsInfoOpen] = useState<boolean>(false);
+  const [isHistoryModalOpen, setIsHistoryModalOpen] = useState<boolean>(false);
+  const [historyPersonFilter, setHistoryPersonFilter] = useState<string>('All');
+  const [isDeleteHistoryModalOpen, setIsDeleteHistoryModalOpen] = useState<boolean>(false);
+  const [deleteHistoryTargetPerson, setDeleteHistoryTargetPerson] = useState<string>('All');
   const [isCalendarOpen, setIsCalendarOpen] = useState<boolean>(false);
   const [isRemindersOpen, setIsRemindersOpen] = useState<boolean>(false);
   const [isNotesOpen, setIsNotesOpen] = useState<boolean>(false);
@@ -139,52 +144,85 @@ export default function App() {
   const [imageEditorInstruction, setImageEditorInstruction] = useState<string>('');
   const [imageEditorAction, setImageEditorAction] = useState<string>('general');
 
-  // Telemetry Dock states
-  const [isTelemetryDockExpanded, setIsTelemetryDockExpanded] = useState<boolean>(false);
-  
-  // Real-time custom top overscroll engine for fluid cinematic drawers with 90-120fps continuous physics
-  const [overscrollY, setOverscrollY] = useState<number>(0);
-  const [targetOverscrollY, setTargetOverscrollY] = useState<number>(0);
-  const [isDragging, setIsDragging] = useState<boolean>(false);
-  const dragStartY = useRef<number>(0);
-  const wheelTimeoutRef = useRef<number | null>(null);
-  const currentOverscrollYRef = useRef<number>(0);
+  // Real-Time Word-by-Word Synchronized Speech Caption Engine (Blink-Free Stable Keys)
+  const [isCaptionVisible, setIsCaptionVisible] = useState<boolean>(false);
+  const [spokenWords, setSpokenWords] = useState<Array<{ id: number; text: string }>>([]);
+  const wordsQueueRef = useRef<string[]>([]);
+  const captionFadeTimeoutRef = useRef<number | null>(null);
+  const wordIdCounterRef = useRef<number>(0);
 
-  // Sync current value in mutable ref to avoid dependency updates in the main physics loop
+  // Dynamic Adaptive Speed Word-by-Word Speech Caption Engine
   useEffect(() => {
-    currentOverscrollYRef.current = overscrollY;
-  }, [overscrollY]);
+    let timeoutId: number | null = null;
 
-  // Buttery-smooth requestAnimationFrame continuous physics loop (90-120fps standard)
-  useEffect(() => {
-    if (isDragging) return; // Pause physics loop while dragging to let finger drag directly
-
-    let animationFrameId: number;
     const tick = () => {
-      setOverscrollY((current) => {
-        const diff = targetOverscrollY - current;
-        if (Math.abs(diff) < 0.05) {
-          return targetOverscrollY;
-        }
-        // Only schedule next frame if still actively moving to avoid endless loop
-        animationFrameId = requestAnimationFrame(tick);
-        return current + diff * 0.28;
-      });
-    };
-    
-    // Always initiate the loop if target and current are different
-    if (Math.abs(currentOverscrollYRef.current - targetOverscrollY) > 0.05) {
-      animationFrameId = requestAnimationFrame(tick);
-    }
-    
-    return () => {
-      if (animationFrameId) cancelAnimationFrame(animationFrameId);
-    };
-  }, [targetOverscrollY, isDragging]);
+      if (wordsQueueRef.current.length > 0) {
+        const nextWord = wordsQueueRef.current.shift()!;
+        setIsCaptionVisible(true);
+        const newWordObj = { id: ++wordIdCounterRef.current, text: nextWord };
+        setSpokenWords((prev) => {
+          const updated = [...prev, newWordObj];
+          if (updated.length > 18) {
+            return updated.slice(updated.length - 18);
+          }
+          return updated;
+        });
 
+        if (captionFadeTimeoutRef.current) clearTimeout(captionFadeTimeoutRef.current);
+        captionFadeTimeoutRef.current = setTimeout(() => {
+          setIsCaptionVisible(false);
+          setSpokenWords([]);
+        }, 3200) as unknown as number;
+
+        // Dynamic speed adaptation: if queue has many words, speed up to keep exact audio sync!
+        const queueLen = wordsQueueRef.current.length;
+        const delay = queueLen > 8 ? 35 : queueLen > 3 ? 55 : 90;
+        timeoutId = setTimeout(tick, delay) as unknown as number;
+      } else {
+        timeoutId = setTimeout(tick, 100) as unknown as number;
+      }
+    };
+
+    timeoutId = setTimeout(tick, 90) as unknown as number;
+
+    return () => {
+      if (timeoutId) clearTimeout(timeoutId);
+    };
+  }, []);
+
+  // Smooth gesture overscroll engine (Windows Wheel + Android Touch Swipe)
+  const [overscrollY, setOverscrollY] = useState<number>(0);
+  const targetOverscrollRef = useRef<number>(0);
+  const currentOverscrollRef = useRef<number>(0);
+  const animFrameRef = useRef<number | null>(null);
+  const wheelTimeoutRef = useRef<number | null>(null);
+  const isTouchDraggingRef = useRef<boolean>(false);
+  const isTouchBlockedRef = useRef<boolean>(false);
+  const touchStartYRef = useRef<number>(0);
+  const touchStartXRef = useRef<number>(0);
+
+  const updateOverscroll = (newTarget: number) => {
+    targetOverscrollRef.current = Math.max(0, Math.min(newTarget, 540));
+    if (animFrameRef.current === null) {
+      const step = () => {
+        const diff = targetOverscrollRef.current - currentOverscrollRef.current;
+        if (Math.abs(diff) < 0.15) {
+          currentOverscrollRef.current = targetOverscrollRef.current;
+          setOverscrollY(targetOverscrollRef.current);
+          animFrameRef.current = null;
+          return;
+        }
+        currentOverscrollRef.current += diff * 0.22;
+        setOverscrollY(currentOverscrollRef.current);
+        animFrameRef.current = requestAnimationFrame(step);
+      };
+      animFrameRef.current = requestAnimationFrame(step);
+    }
+  };
+
+  // Wheel listener for Windows / macOS (Mouse Wheel & Trackpad)
   useEffect(() => {
     const handleWheel = (e: WheelEvent) => {
-      // Ignore overscroll actions if modal dialogs are open
       if (
         isChatOpen ||
         isMapOpen ||
@@ -200,27 +238,26 @@ export default function App() {
         return;
       }
 
-      setTargetOverscrollY((prev) => {
-        // Pull down is scroll up (e.deltaY < 0)
-        let next = prev - e.deltaY * 1.6;
-        next = Math.max(0, Math.min(next, 540));
-        return next;
-      });
+      const target = e.target as HTMLElement;
+      if (target && target.closest('.overflow-y-auto')) {
+        return;
+      }
 
-      // Stop scrolling detection to auto-complete animation smoothly to either fully opened or fully closed state
+      const delta = e.deltaY;
+      const nextTarget = targetOverscrollRef.current - delta * 1.2;
+      updateOverscroll(nextTarget);
+
       if (wheelTimeoutRef.current) clearTimeout(wheelTimeoutRef.current);
       wheelTimeoutRef.current = setTimeout(() => {
-        setTargetOverscrollY((current) => {
-          if (current > 140) {
-            return 540; // fully open
-          } else {
-            return 0; // fully closed
-          }
-        });
-      }, 150) as unknown as number;
+        if (targetOverscrollRef.current > 120) {
+          updateOverscroll(540);
+        } else {
+          updateOverscroll(0);
+        }
+      }, 180) as unknown as number;
     };
 
-    window.addEventListener('wheel', handleWheel, { passive: false });
+    window.addEventListener('wheel', handleWheel, { passive: true });
     return () => {
       window.removeEventListener('wheel', handleWheel);
       if (wheelTimeoutRef.current) clearTimeout(wheelTimeoutRef.current);
@@ -238,6 +275,7 @@ export default function App() {
     isGeneratedContentOpen,
   ]);
 
+  // Touch Swipe listener for Android / Mobile
   useEffect(() => {
     const handleTouchStart = (e: TouchEvent) => {
       if (
@@ -252,47 +290,78 @@ export default function App() {
         isSettingsOpen ||
         isGeneratedContentOpen
       ) {
+        isTouchBlockedRef.current = true;
         return;
       }
 
-      // Do not hijack dragging if the user is touching inside scrollable logs, buttons, or interactive inputs
       const target = e.target as HTMLElement;
-      if (target.closest('.overflow-y-auto') || target.closest('button') || target.closest('textarea') || target.closest('input')) {
+      // CRITICAL: NEVER hijack touch start on scrollable logs, buttons, inputs, links, dock, or widgets!
+      if (
+        target.closest('.overflow-y-auto') ||
+        target.closest('.overflow-x-auto') ||
+        target.closest('button') ||
+        target.closest('textarea') ||
+        target.closest('input') ||
+        target.closest('a') ||
+        target.closest('[role="button"]') ||
+        target.closest('.iris-orb-container')
+      ) {
+        isTouchBlockedRef.current = true;
         return;
       }
 
-      dragStartY.current = e.touches[0].clientY;
-      setIsDragging(true);
+      isTouchBlockedRef.current = false;
+      touchStartYRef.current = e.touches[0].clientY;
+      touchStartXRef.current = e.touches[0].clientX;
+      isTouchDraggingRef.current = false;
     };
 
     const handleTouchMove = (e: TouchEvent) => {
-      if (!isDragging) return;
+      if (isTouchBlockedRef.current) return;
+      if (!e.touches[0]) return;
+
+      const target = e.target as HTMLElement;
+      if (target && (target.closest('.overflow-y-auto') || target.closest('.overflow-x-auto'))) {
+        return;
+      }
+
       const currentY = e.touches[0].clientY;
-      const deltaY = currentY - dragStartY.current;
+      const currentX = e.touches[0].clientX;
+      const deltaY = currentY - touchStartYRef.current;
+      const deltaX = currentX - touchStartXRef.current;
 
-      setTargetOverscrollY((prev) => {
-        const next = Math.max(0, Math.min(prev + deltaY * 1.6, 540));
-        return next;
-      });
-      dragStartY.current = currentY;
+      if (!isTouchDraggingRef.current) {
+        if (Math.abs(deltaY) > 8 && Math.abs(deltaY) > Math.abs(deltaX) * 1.2) {
+          isTouchDraggingRef.current = true;
+        } else {
+          return;
+        }
+      }
 
-      if (e.cancelable) e.preventDefault();
+      const nextTarget = targetOverscrollRef.current + deltaY * 1.4;
+      updateOverscroll(nextTarget);
+      touchStartYRef.current = currentY;
     };
 
     const handleTouchEnd = () => {
-      setIsDragging(false);
-      setTargetOverscrollY((prev) => {
-        if (prev > 140) {
-          return 540; // smoothly complete to open
+      if (isTouchBlockedRef.current) {
+        isTouchBlockedRef.current = false;
+        return;
+      }
+
+      if (isTouchDraggingRef.current) {
+        isTouchDraggingRef.current = false;
+        if (targetOverscrollRef.current > 120) {
+          updateOverscroll(540);
         } else {
-          return 0; // smoothly complete to closed
+          updateOverscroll(0);
         }
-      });
+      }
     };
 
     window.addEventListener('touchstart', handleTouchStart, { passive: true });
-    window.addEventListener('touchmove', handleTouchMove, { passive: false });
-    window.addEventListener('touchend', handleTouchEnd);
+    window.addEventListener('touchmove', handleTouchMove, { passive: true });
+    window.addEventListener('touchend', handleTouchEnd, { passive: true });
 
     return () => {
       window.removeEventListener('touchstart', handleTouchStart);
@@ -300,7 +369,6 @@ export default function App() {
       window.removeEventListener('touchend', handleTouchEnd);
     };
   }, [
-    isDragging,
     isChatOpen,
     isMapOpen,
     isCalendarOpen,
@@ -312,6 +380,8 @@ export default function App() {
     isSettingsOpen,
     isGeneratedContentOpen,
   ]);
+
+
 
   const [lastAction, setLastAction] = useState<{
     name: string;
@@ -655,8 +725,21 @@ export default function App() {
         if (newState !== 'ERROR') {
           setErrorMessage(null);
         }
-        // When Iris stops speaking and transitions to listening, close streaming state
-        if (newState === 'LISTENING') {
+
+        if (newState === 'SPEAKING') {
+          if (captionFadeTimeoutRef.current) {
+            clearTimeout(captionFadeTimeoutRef.current);
+            captionFadeTimeoutRef.current = null;
+          }
+          setIsCaptionVisible(true);
+        } else if (newState === 'LISTENING' || newState === 'IDLE' || newState === 'ERROR') {
+          // When Iris finishes speaking, fade out caption
+          if (captionFadeTimeoutRef.current) clearTimeout(captionFadeTimeoutRef.current);
+          captionFadeTimeoutRef.current = setTimeout(() => {
+            setIsCaptionVisible(false);
+            setSpokenWords([]);
+          }, 3200) as unknown as number;
+
           setConversationTurns((prev) => {
             const last = prev[prev.length - 1];
             if (last && last.role === 'iris' && last.isStreaming) {
@@ -671,24 +754,13 @@ export default function App() {
       },
       onIrisTranscription: (text) => {
         const cleanText = toEnglishAlphabets(text);
-        setIrisText((prev) => (prev ? `${prev} ${cleanText}` : cleanText));
         if (!cleanText.trim()) return;
 
-        // Record assistant speech in cross-session memory database
-        crossSessionMemory.recordSpeechLog('iris', cleanText);
-
-        // Auto-detect links shared by Iris
-        const urlMatch = cleanText.match(/https?:\/\/[^\s<>)"]+/i);
-        if (urlMatch) {
-          const foundUrl = urlMatch[0].replace(/[.,;:!?)]+$/, '');
-          setGeneratedContentData({
-            title: 'Web Link',
-            contentType: 'link',
-            content: foundUrl,
-            url: foundUrl,
-            summary: `Destination: ${foundUrl}`,
-          });
-          setIsGeneratedContentOpen(true);
+        // Push individual words into queue for word-by-word real-time speech sync
+        const words = cleanText.split(/\s+/).filter(Boolean);
+        if (words.length > 0) {
+          wordsQueueRef.current.push(...words);
+          setIsCaptionVisible(true);
         }
 
         setConversationTurns((prev) => {
@@ -717,11 +789,31 @@ export default function App() {
             },
           ];
         });
+
+        // Record assistant speech in cross-session memory database
+        crossSessionMemory.recordSpeechLog('iris', cleanText);
+
+        // Auto-detect links shared by Iris
+        const urlMatch = cleanText.match(/https?:\/\/[^\s<>)"]+/i);
+        if (urlMatch) {
+          const foundUrl = urlMatch[0].replace(/[.,;:!?)]+$/, '');
+          setGeneratedContentData({
+            title: 'Web Link',
+            contentType: 'link',
+            content: foundUrl,
+            url: foundUrl,
+            summary: `Destination: ${foundUrl}`,
+          });
+          setIsGeneratedContentOpen(true);
+        }
       },
       onUserTranscription: (text) => {
         const cleanUserText = toEnglishAlphabets(text);
         setUserText(cleanUserText);
-        setIrisText(''); // Clear Iris captions when user starts speaking!
+        wordsQueueRef.current = [];
+        setSpokenWords([]);
+        setIsCaptionVisible(false);
+        if (captionFadeTimeoutRef.current) clearTimeout(captionFadeTimeoutRef.current);
         if (!cleanUserText.trim()) return;
 
         // Auto-detect Dev claim to show password pop-up
@@ -930,7 +1022,10 @@ export default function App() {
         e.preventDefault();
         toggleSession();
       } else if (e.code === 'Escape') {
-        if (isSettingsOpen) setIsSettingsOpen(false);
+        if (targetOverscrollRef.current > 0) updateOverscroll(0);
+        else if (isSpreadsheetOpen) setIsSpreadsheetOpen(false);
+        else if (isMapOpen) setIsMapOpen(false);
+        else if (isSettingsOpen) setIsSettingsOpen(false);
         else if (isInfoOpen) setIsInfoOpen(false);
         else if (isChatOpen) setIsChatOpen(false);
         else if (isCalendarOpen) setIsCalendarOpen(false);
@@ -947,12 +1042,14 @@ export default function App() {
         setIsSettingsOpen((prev) => !prev);
       } else if ((e.key === 'i' || e.key === 'I') && !e.ctrlKey && !e.metaKey) {
         setIsInfoOpen((prev) => !prev);
+      } else if ((e.key === 't' || e.key === 'T') && !e.ctrlKey && !e.metaKey) {
+        updateOverscroll(targetOverscrollRef.current > 0 ? 0 : 540);
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isSettingsOpen, isInfoOpen, isChatOpen, isGeneratedContentOpen, isVoiceUploadOpen, isContactsOpen, isCalendarOpen, isRemindersOpen, isNotesOpen, isNotificationsOpen, state, selectedVoice]);
+  }, [overscrollY, isSpreadsheetOpen, isMapOpen, isSettingsOpen, isInfoOpen, isChatOpen, isGeneratedContentOpen, isVoiceUploadOpen, isContactsOpen, isCalendarOpen, isRemindersOpen, isNotesOpen, isNotificationsOpen, state, selectedVoice]);
 
   // Toggle Live Session
   const toggleSession = async () => {
@@ -1008,19 +1105,16 @@ export default function App() {
     setContacts([...clientRef.current.getDeviceBridge().getContacts()]);
   };
 
-  const isDark = theme === 'dark'; // Custom scroll physics and widget morphing engine
-
-  // Real-time custom top overscroll values
+  const isDark = theme === 'dark';
   const overscrollProgress = Math.min(Math.max(overscrollY / 540, 0), 1);
   const dockOpacity = overscrollProgress;
   const contentOpacity = overscrollProgress < 0.25 ? 0 : (overscrollProgress - 0.25) / 0.75;
-  const captionOpacity = Math.max(0, 1 - overscrollProgress * 2.5);
 
   // 1. TOPMOST Widget gets translated up and motion-blurred
   const getTopmostWidgetStyle = (progress: number) => {
-    const translateY = -progress * 280; // translates up smoothly
+    const translateY = -progress * 280;
     const opacity = Math.max(0, 1 - progress * 1.6);
-    const blur = progress * 12; // Premium motion blur effect
+    const blur = progress * 12;
     return {
       transform: `translate3d(0, ${translateY}px, 0)`,
       opacity,
@@ -1032,9 +1126,9 @@ export default function App() {
 
   // 2. MIDDLE Dock moves to the right and motion-blurred
   const getMiddleDockStyle = (progress: number) => {
-    const translateX = progress * 480; // translates to the right smoothly
+    const translateX = progress * 480;
     const opacity = Math.max(0, 1 - progress * 1.6);
-    const blur = progress * 12; // Premium motion blur effect
+    const blur = progress * 12;
     return {
       transform: `translate3d(${translateX}px, 0, 0)`,
       opacity,
@@ -1046,9 +1140,9 @@ export default function App() {
 
   // 3. LOWER Widget moves to the left and motion-blurred
   const getLowerWidgetStyle = (progress: number) => {
-    const translateX = -progress * 480; // translates to the left smoothly
+    const translateX = -progress * 480;
     const opacity = Math.max(0, 1 - progress * 1.6);
-    const blur = progress * 12; // Premium motion blur effect
+    const blur = progress * 12;
     return {
       transform: `translate3d(${translateX}px, 0, 0)`,
       opacity,
@@ -1084,6 +1178,7 @@ export default function App() {
       <JarvisLiveWallpaper
         audioLevel={audioLevel}
         isLiveActive={state !== 'IDLE' && state !== 'ERROR'}
+        theme={theme}
       />
 
       {/* Floating Action Feedback Notification */}
@@ -1100,7 +1195,7 @@ export default function App() {
       {/* Top Navigation Bar: Settings Icon (Top-Left) & Information Icon (Top-Right) */}
       <header 
         style={getTopmostWidgetStyle(overscrollProgress)}
-        className={`w-full max-w-5xl mx-auto px-4 py-3 flex items-center justify-between border-b z-20 backdrop-blur-xl rounded-b-2xl transition-all duration-300 ${
+        className={`w-full max-w-5xl mx-auto px-4 py-3 flex items-center justify-between border-b z-20 backdrop-blur-xl rounded-b-2xl transition-colors duration-200 ${
           isDark
             ? 'bg-slate-950/60 border-cyan-500/20 shadow-[0_15px_35px_rgba(6,182,212,0.14)] text-white'
             : 'bg-white/50 border-white/70 shadow-[0_15px_35px_rgba(14,165,233,0.14)] text-slate-900'
@@ -1263,6 +1358,7 @@ export default function App() {
             localStorage.setItem('iris_platform_mode', mode);
           }}
           onOpenChat={() => setIsChatOpen(true)}
+          theme={theme}
           onExecuteApp={(appId, query) => {
             if (clientRef.current) {
               const bridge = clientRef.current.getDeviceBridge();
@@ -1310,46 +1406,61 @@ export default function App() {
       <section 
         style={{
           position: 'fixed',
-          top: '50%',
+          top: '42%',
           left: '50%',
           transform: 'translate(-50%, -50%)',
           width: '100%',
-          maxWidth: '48rem', // max-w-3xl matching main area
+          maxWidth: '48rem',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
           zIndex: 30,
-          pointerEvents: overscrollProgress > 0.65 ? 'auto' : 'none',
+          pointerEvents: overscrollProgress > 0.35 ? 'auto' : 'none',
         }}
         className="px-4 sm:px-6"
       >
-        {/* Dynamic Morphing Telemetry Container (Ball -> Line -> Box) */}
+        {/* Dynamic Morphing Telemetry Container (Ball -> Box) */}
         <div 
           style={{
-            width: overscrollProgress < 0.35 ? `${48 + (overscrollProgress / 0.35) * 720}px` : '100%',
-            height: overscrollProgress < 0.35 ? `${48 - (overscrollProgress / 0.35) * 44}px` : `${4 + ((overscrollProgress - 0.35) / 0.65) * 446}px`,
+            width: overscrollProgress < 0.25 ? `${48 + (overscrollProgress / 0.25) * 720}px` : '100%',
+            height: `${Math.min(410, Math.max(48, overscrollProgress * 410))}px`,
             opacity: dockOpacity,
-            filter: overscrollProgress < 0.3 ? 'blur(16px)' : `blur(${Math.max(0, (1 - overscrollProgress) * 16)}px)`,
-            borderRadius: overscrollProgress < 0.35 ? '9999px' : overscrollProgress < 0.6 ? '2px' : '24px',
+            filter: overscrollProgress < 0.2 ? 'blur(12px)' : `blur(${Math.max(0, (1 - overscrollProgress) * 12)}px)`,
+            borderRadius: overscrollProgress < 0.35 ? '9999px' : '24px',
             boxShadow: overscrollProgress < 0.5 ? '0 0 25px rgba(6, 182, 212, 0.85)' : '0 10px 40px rgba(6, 182, 212, 0.15)',
+            willChange: 'width, height, opacity, filter, border-radius',
           }}
-          className={`border backdrop-blur-3xl flex flex-col relative ${
+          className={`border backdrop-blur-3xl flex flex-col relative overflow-hidden ${
             theme === 'dark' 
               ? 'bg-slate-900/95 border-cyan-500/30' 
               : 'bg-white/95 border-blue-300 shadow-[0_10px_30px_rgba(59,130,246,0.12)]'
           }`}
         >
+          {/* Floating Close Button at Top-Center */}
+          {overscrollProgress > 0.4 && (
+            <div className="absolute top-2 left-1/2 -translate-x-1/2 z-50">
+              <button
+                type="button"
+                onClick={() => updateOverscroll(0)}
+                className="px-4 py-1 rounded-full bg-slate-900/95 hover:bg-rose-600 text-slate-200 hover:text-white border border-cyan-500/40 hover:border-rose-400 shadow-xl backdrop-blur-md flex items-center gap-1.5 text-xs font-mono font-bold tracking-wider transition-all duration-200 cursor-pointer active:scale-95 group"
+                title="Close Telemetry Panel"
+              >
+                <X className="w-3.5 h-3.5 group-hover:rotate-90 transition-transform duration-200 text-cyan-400 group-hover:text-white" />
+                <span>CLOSE TELEMETRY</span>
+              </button>
+            </div>
+          )}
+
           {/* Faded content layer in sync with overscroll progress */}
           <div 
             style={{ 
               opacity: contentOpacity, 
-              transition: 'opacity 0.1s ease-out',
               display: 'flex',
               flexDirection: 'column',
               height: '100%',
               width: '100%'
             }}
-            className="p-5 overflow-hidden w-full h-full pb-10"
+            className={`p-5 overflow-hidden w-full h-full pb-10 ${overscrollProgress > 0.4 ? 'pt-10' : ''}`}
           >
             {/* Dynamic Telemetry Header */}
             <div className="flex items-center justify-between border-b border-slate-800/40 pb-3 mb-3 font-mono text-xs shrink-0">
@@ -1357,11 +1468,19 @@ export default function App() {
                 <Terminal className="w-4 h-4 text-cyan-400 animate-pulse" />
                 <span>I.R.I.S LIVE TELEMETRY LOGS</span>
               </div>
-              <div className="flex items-center gap-1.5 font-bold">
-                <History className="w-3.5 h-3.5 text-slate-500" />
-                <span className="text-[10px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded border border-slate-700/20">
+              <div className="flex items-center gap-2 font-bold">
+                <History className="w-3.5 h-3.5 text-slate-400" />
+                <span className="text-[10px] bg-slate-800/80 text-slate-300 px-2.5 py-0.5 rounded border border-slate-700/40">
                   {conversationTurns.filter(t => t.role !== 'user').length} Assistant Logs
                 </span>
+                <button
+                  type="button"
+                  onClick={() => updateOverscroll(0)}
+                  className="w-6 h-6 rounded-lg border border-slate-700 hover:border-rose-400 text-slate-400 hover:text-rose-400 bg-slate-800/60 flex items-center justify-center transition-all ml-1 cursor-pointer"
+                  title="Close Telemetry Panel"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
               </div>
             </div>
 
@@ -1386,17 +1505,18 @@ export default function App() {
       <main 
         style={{
           transform: `translateY(${overscrollY * 0.25}px)`,
-          transition: 'transform 0.35s cubic-bezier(0.16, 1, 0.3, 1)',
+          willChange: 'transform',
         }}
-        className="flex-1 w-full max-w-3xl mx-auto px-4 sm:px-6 flex flex-col items-center justify-between z-10 py-4 sm:py-6 space-y-4 h-[calc(100vh-140px)] shrink-0 relative"
+        className="flex-1 w-full max-w-2xl mx-auto px-4 sm:px-6 flex flex-col items-center justify-between z-10 py-2 sm:py-4 space-y-2 h-[calc(100vh-140px)] shrink-0 relative"
       >
-        {/* Centered Orb with sliding translation into bottom center bezel of Telemetry Panel (Mathematically Synchronized with 0.35 phase curve) */}
+        {/* Centered Orb with attached Captions directly beneath it */}
         <div 
           style={{
-            transform: `translateY(${overscrollProgress < 0.35 ? 0 : ((overscrollProgress - 0.35) / 0.65) * 200}px) scale(${overscrollProgress < 0.35 ? 1.0 : 1.0 - ((overscrollProgress - 0.35) / 0.65) * 0.45})`,
+            transform: `translateY(${overscrollProgress < 0.35 ? 0 : ((overscrollProgress - 0.35) / 0.65) * 140}px) scale(${overscrollProgress < 0.35 ? 1.0 : 1.0 - ((overscrollProgress - 0.35) / 0.65) * 0.48})`,
             filter: `blur(${overscrollProgress * (1 - overscrollProgress) * 12}px) drop-shadow(0 0 ${15 + overscrollProgress * 25}px rgba(6,182,212,${0.25 + overscrollProgress * 0.5}))`,
+            willChange: 'transform, filter',
           }}
-          className="relative z-40 flex flex-col items-center"
+          className="relative z-50 flex flex-col items-center w-full max-w-lg"
         >
           {/* Central Advanced Ethereal Harmonic Ribbon Orb with I.R.I.S. Central Hologram */}
           <IrisOrb
@@ -1406,59 +1526,76 @@ export default function App() {
             theme={theme}
             overscrollProgress={overscrollProgress}
           />
-        </div>
 
-        {/* Beautiful Captions with Fade-in and Fade-out Transitions */}
-        <div 
-          style={{
-            opacity: irisText && state === 'SPEAKING' ? captionOpacity : 0,
-            pointerEvents: captionOpacity < 0.15 ? 'none' : 'auto',
-            transform: `translateY(${overscrollProgress * 30}px)`,
-            transition: 'opacity 0.2s cubic-bezier(0.25, 1, 0.5, 1), transform 0.2s ease-out',
-          }}
-          className="w-full max-w-xl mx-auto px-4 my-1 flex-1 flex items-center justify-center"
-        >
-          <div className={`w-full p-4 rounded-2xl border text-center shadow-md relative overflow-hidden backdrop-blur-md ${
-            theme === 'dark'
-              ? 'bg-slate-900/90 border-cyan-500/25 text-cyan-200 shadow-cyan-950/20 shadow-[0_0_20px_rgba(6,182,212,0.12)]'
-              : 'bg-white/95 border-blue-200 text-blue-900 shadow-blue-100/50 shadow-[0_0_15px_rgba(37,99,235,0.08)]'
-          }`}>
-            {/* Top tiny caption helper icon */}
-            <div className="absolute top-1 right-2 flex items-center gap-1 opacity-45">
-              <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
-              <span className="text-[8px] font-mono tracking-widest text-slate-400">IRIS CAPTIONS</span>
+          {/* Captions directly attached beneath the Orb! Word-by-Word Progressive Speech Sync */}
+          <div 
+            style={{
+              opacity: spokenWords.length > 0 && isCaptionVisible ? Math.max(0, 1 - overscrollProgress * 2.5) : 0,
+              pointerEvents: spokenWords.length > 0 && isCaptionVisible && overscrollProgress < 0.3 ? 'auto' : 'none',
+              transition: 'opacity 0.25s cubic-bezier(0.16, 1, 0.3, 1)',
+            }}
+            className="w-full px-2 mt-1 sm:mt-2"
+          >
+            <div className={`w-full p-2.5 sm:p-3 rounded-2xl border text-center shadow-md relative overflow-hidden backdrop-blur-md transition-all ${
+              theme === 'dark'
+                ? 'bg-slate-900/90 border-cyan-500/30 text-cyan-200 shadow-cyan-950/20 shadow-[0_0_20px_rgba(6,182,212,0.15)]'
+                : 'bg-white/95 border-blue-200 text-blue-900 shadow-blue-100/50 shadow-[0_0_15px_rgba(37,99,235,0.08)]'
+            }`}>
+              {/* Top tiny caption helper header */}
+              <div className="flex items-center justify-between opacity-50 mb-1 font-mono text-[9px] uppercase tracking-widest px-1">
+                <div className="flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+                  <span className="text-slate-400 font-bold">IRIS SPEECH SYNCHRONIZED CAPTIONS</span>
+                </div>
+                <span className="text-[8px] text-cyan-400 font-bold">WORD BY WORD</span>
+              </div>
+              {/* Word-by-Word Progressive Reveal */}
+              <div className="px-1 text-xs sm:text-sm font-semibold leading-relaxed min-h-[2.25rem] flex items-center justify-center flex-wrap gap-1">
+                {spokenWords.length > 0 ? (
+                  spokenWords.map((wordObj) => (
+                    <span 
+                      key={wordObj.id}
+                      className="inline-block animate-bubble-pop transition-all duration-150"
+                    >
+                      {wordObj.text}
+                    </span>
+                  ))
+                ) : (
+                  <span className="text-slate-400 italic font-normal text-xs">...</span>
+                )}
+              </div>
             </div>
-            {/* 2-lines limited caption text block */}
-            <p className="text-xs sm:text-sm font-semibold leading-relaxed line-clamp-2 overflow-hidden text-ellipsis select-text">
-              {irisText || "..."}
-            </p>
           </div>
         </div>
 
         {/* Dynamic bottom gesture instructions */}
         <div className="flex flex-col items-center gap-1 shrink-0 pb-1 w-full">
-          {overscrollProgress < 0.1 ? (
+          {overscrollProgress < 0.2 ? (
             <button
-              onClick={() => setOverscrollY(540)}
-              className="group transition-all duration-300 flex flex-col items-center gap-1 cursor-pointer"
+              type="button"
+              onClick={() => updateOverscroll(540)}
+              className="group transition-all duration-300 flex flex-col items-center gap-1 cursor-pointer py-1 px-4 rounded-2xl hover:bg-slate-800/20 active:scale-95"
+              title="Scroll or Tap for Telemetry Logs"
             >
-              <div className="w-5 h-8 border-2 border-slate-500/60 rounded-full flex justify-center p-1 opacity-50 animate-bounce">
-                <div className="w-1.5 h-2.5 bg-slate-500/80 rounded-full" />
+              <div className="w-5 h-7 border-2 border-slate-500/60 rounded-full flex justify-center p-1 opacity-60 group-hover:opacity-100 group-hover:border-cyan-400 transition-all">
+                <div className="w-1.5 h-2 bg-slate-500/80 group-hover:bg-cyan-400 rounded-full animate-bounce" />
               </div>
-              <span className="text-[9px] font-mono tracking-widest text-slate-500 group-hover:text-cyan-400 transition-colors uppercase">
-                SCROLL UP OR PULL DOWN FOR TELEMETRY
+              <span className="text-[9px] font-mono tracking-widest text-slate-500 group-hover:text-cyan-400 transition-colors uppercase font-bold">
+                SCROLL OR TAP FOR TELEMETRY
               </span>
             </button>
           ) : (
             <button
-              onClick={() => setOverscrollY(0)}
-              className="group transition-all duration-300 flex flex-col items-center gap-1 cursor-pointer"
+              type="button"
+              onClick={() => updateOverscroll(0)}
+              className="group transition-all duration-300 flex flex-col items-center gap-1 cursor-pointer py-1 px-4 rounded-2xl hover:bg-slate-800/20 active:scale-95"
+              title="Close Telemetry Panel"
             >
-              <div className="w-5 h-5 flex items-center justify-center opacity-60 animate-bounce">
+              <div className="w-5 h-5 flex items-center justify-center opacity-70 group-hover:opacity-100 animate-bounce">
                 <ChevronUp className="w-4 h-4 text-cyan-400" />
               </div>
-              <span className="text-[9px] font-mono tracking-widest text-cyan-400/80 group-hover:text-white transition-colors uppercase">
-                SCROLL DOWN OR PUSH UP TO CLOSE
+              <span className="text-[9px] font-mono tracking-widest text-cyan-400 group-hover:text-white transition-colors uppercase font-bold">
+                CLOSE TELEMETRY
               </span>
             </button>
           )}
@@ -1514,6 +1651,20 @@ export default function App() {
             name === 'replyNotification'
           ) {
             setIsNotificationsOpen(true);
+          } else if (
+            name === 'openConversationHistory' ||
+            name === 'openChatHistory' ||
+            name === 'showConversationHistory'
+          ) {
+            setHistoryPersonFilter(info.args?.personName || info.args?.name || 'Latest');
+            setIsHistoryModalOpen(true);
+          } else if (
+            name === 'triggerDeleteHistoryChallenge' ||
+            name === 'deleteConversationHistory' ||
+            name === 'deleteChatHistory'
+          ) {
+            setDeleteHistoryTargetPerson(info.args?.personName || info.args?.name || 'All');
+            setIsDeleteHistoryModalOpen(true);
           } else if (
             (name === 'showGeneratedContent' || name === 'showLink' || name === 'retrieveFile') &&
             result?.data
@@ -1668,7 +1819,28 @@ export default function App() {
         }}
       />
 
-      {/* Settings Modal (Opened from Top-Left) */}
+      {/* Conversation & Delete History Modals */}
+      <ConversationHistoryModal
+        isOpen={isHistoryModalOpen}
+        onClose={() => setIsHistoryModalOpen(false)}
+        initialPersonName={historyPersonFilter}
+        theme={theme}
+        onRequestDeletePerson={(person) => {
+          setDeleteHistoryTargetPerson(person);
+          setIsDeleteHistoryModalOpen(true);
+        }}
+      />
+
+      <DeleteHistoryModal
+        isOpen={isDeleteHistoryModalOpen}
+        onClose={() => setIsDeleteHistoryModalOpen(false)}
+        personName={deleteHistoryTargetPerson}
+        theme={theme}
+        onSuccess={(msg) => {
+          setAuthFeedbackMessage(msg);
+        }}
+      />
+
       <SettingsModal
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
@@ -1875,10 +2047,7 @@ export default function App() {
               ? 'bg-slate-900/90 border-cyan-500/30 text-white shadow-cyan-500/10'
               : 'bg-white border-blue-200 text-slate-900 shadow-blue-500/10'
           }`}>
-            <h3 className="text-sm font-mono tracking-wider font-bold uppercase text-blue-500 mb-2">Security Verification</h3>
-            <p className="text-xs sm:text-sm font-semibold mb-4 leading-relaxed">
-              {devPasswordPromptMessage}
-            </p>
+            <h3 className="text-sm font-mono tracking-wider font-bold uppercase text-blue-500 mb-4">Security Verification</h3>
             
             <form onSubmit={async (e) => {
               e.preventDefault();
@@ -1979,8 +2148,16 @@ export default function App() {
         </div>
       )}
 
-      {/* Footer */}
-      <footer className="w-full max-w-4xl mx-auto px-4 py-3 text-center text-xs text-slate-500 z-10 flex flex-col sm:flex-row items-center justify-between gap-2 border-t border-slate-200">
+      {/* Footer (fades out on overscroll so its top border line never crosses the small Orb) */}
+      <footer 
+        style={{
+          opacity: Math.max(0, 1 - overscrollProgress * 2.5),
+          pointerEvents: overscrollProgress > 0.2 ? 'none' : 'auto',
+          transition: 'opacity 0.2s ease-out',
+          zIndex: 1,
+        }}
+        className="w-full max-w-4xl mx-auto px-4 py-3 text-center text-xs text-slate-500 flex flex-col sm:flex-row items-center justify-between gap-2 border-t border-slate-200/50 dark:border-slate-800/40 relative"
+      >
         <div className="flex items-center gap-1.5">
           <ShieldCheck className="w-3.5 h-3.5 text-blue-600" />
           <span>Safe Device Actions Bridge • WhatsApp, Phone, Apps, URLs</span>
