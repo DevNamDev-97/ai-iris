@@ -1572,7 +1572,7 @@ export default function App() {
       <section 
         style={{
           position: 'fixed',
-          top: '42%',
+          top: '38%',
           left: '50%',
           transform: 'translate(-50%, -50%)',
           width: '100%',
@@ -1589,7 +1589,7 @@ export default function App() {
         <div 
           style={{
             width: overscrollProgress < 0.25 ? `${48 + (overscrollProgress / 0.25) * 720}px` : '100%',
-            height: `${Math.min(410, Math.max(48, overscrollProgress * 410))}px`,
+            height: `${Math.min(360, Math.max(48, overscrollProgress * 360))}px`,
             opacity: dockOpacity,
             filter: overscrollProgress < 0.2 ? 'blur(12px)' : `blur(${Math.max(0, (1 - overscrollProgress) * 12)}px)`,
             borderRadius: overscrollProgress < 0.35 ? '9999px' : '24px',
@@ -1678,7 +1678,7 @@ export default function App() {
         {/* Centered Orb with attached Captions directly beneath it */}
         <div 
           style={{
-            transform: `translateY(${overscrollProgress < 0.35 ? 0 : ((overscrollProgress - 0.35) / 0.65) * 110}px)`,
+            transform: `translateY(${overscrollProgress < 0.35 ? 0 : ((overscrollProgress - 0.35) / 0.65) * 65}px)`,
             filter: `drop-shadow(0 0 ${15 + overscrollProgress * 25}px rgba(6,182,212,${0.25 + overscrollProgress * 0.5}))`,
             willChange: 'transform, filter',
           }}
