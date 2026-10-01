@@ -38,6 +38,24 @@ export const ActionFeedback: React.FC<ActionFeedbackProps> = ({ lastAction, onCl
   const { name, args, result } = lastAction || { name: '', args: {}, result: { success: false, action: '' } };
   const data = result?.data || {};
 
+  // Do not render action card for internal app modals
+  const isInternalModal = 
+    name === 'openConversationHistory' ||
+    name === 'openChatHistory' ||
+    name === 'showConversationHistory' ||
+    name === 'showChatHistory' ||
+    name === 'openChatPanel' ||
+    name === 'openChat' ||
+    name === 'openTelemetryPanel' ||
+    name === 'showTelemetry' ||
+    name === 'triggerDevChallenge' ||
+    name === 'triggerRebootChallenge' ||
+    name === 'triggerDeleteHistoryChallenge';
+
+  if (!lastAction || isInternalModal) {
+    return null;
+  }
+
   // Extract direct targets
   const protocolUri = data.uri || (name === 'openApp' && data.app ? `${data.app.toLowerCase()}:` : '');
   const webUrl = data.targetUrl || data.url || (typeof data === 'string' && data.startsWith('http') ? data : '');
@@ -62,6 +80,20 @@ export const ActionFeedback: React.FC<ActionFeedbackProps> = ({ lastAction, onCl
       if (cameraInput) {
         cameraInput.click();
       }
+      return;
+    }
+
+    if (
+      name === 'openConversationHistory' ||
+      name === 'openChatHistory' ||
+      name === 'showConversationHistory' ||
+      name === 'showChatHistory'
+    ) {
+      window.dispatchEvent(
+        new CustomEvent('iris-open-history', {
+          detail: { personName: data.personName || 'All' },
+        })
+      );
       return;
     }
 
@@ -327,10 +359,24 @@ export const ActionFeedback: React.FC<ActionFeedbackProps> = ({ lastAction, onCl
             </a>
           ) : (
             <button
-              onClick={() => onClear()}
+              onClick={() => {
+                if (
+                  name === 'openConversationHistory' ||
+                  name === 'openChatHistory' ||
+                  name === 'showConversationHistory' ||
+                  name === 'showChatHistory'
+                ) {
+                  window.dispatchEvent(
+                    new CustomEvent('iris-open-history', {
+                      detail: { personName: data.personName || 'All' },
+                    })
+                  );
+                }
+                onClear();
+              }}
               className="flex-1 py-2 px-3 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-bold text-xs flex items-center justify-center gap-1.5 shadow-md shadow-cyan-500/25 transition-all active:scale-95"
             >
-              <span>Launched</span>
+              <span>{name.toLowerCase().includes('history') ? 'Open History' : 'Launched'}</span>
               <Check className="w-3.5 h-3.5" />
             </button>
           )}

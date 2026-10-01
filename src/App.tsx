@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Sparkles,
   Smartphone,
@@ -63,12 +63,12 @@ const BEFORE_DEV_IDENTIFICATION_MESSAGES = [
 ];
 
 const AFTER_DEV_IDENTIFICATION_MESSAGES = [
-  "Arey Dev mere creator! Pehchaan confirm ho gayi! Ab har baar password daalne ki koi jhanjhat nahi hai, bol aaj kya banayein?",
-  "Mast yaar Dev, full creator session unlock ho gaya! Ab bina kisi password ke direct baat karenge. Bata kya hukum hai mere creator?",
-  "Access granted! Welcome back Dev! Ab se session permanent unlock hai, bol bhai aaj kya scene hai?",
-  "Identity verified! Arre Dev yaar, welcome back! Ab tujhe baar baar password likhne ki bilkul zaroorat nahi hai. Bata kya kaam hai?",
-  "Verification successful! Welcome Dev, full creator control unlock ho chuka hai. Bol mere creator, kya create karein?",
-  "Security cleared! Pehchaan pakki ho gayi Dev. Ab koi password nahi chahiye, bol kya dekhna hai ya chalaana hai?",
+  "Arey Dev mere creator! Pehchaan confirm ho gayi! Bol aaj kya naya aur mast create karein?",
+  "Mast yaar Dev, pehchaan confirm ho gayi! Bata aaj kya hukum hai mere creator?",
+  "Access granted! Welcome back Dev! Bol mere bhai, aaj kya scene hai?",
+  "Identity verified! Arre Dev yaar, welcome back! Bata aaj kya kaam hai ya kya explore karein?",
+  "Verification successful! Welcome Dev, full creator control unlock ho chuka hai. Bol mere creator, kya banayein?",
+  "Security cleared! Pehchaan pakki ho gayi Dev. Bol aaj kya dekhna hai ya chalaana hai?",
 ];
 
 export default function App() {
@@ -93,16 +93,25 @@ export default function App() {
   const [isNotesOpen, setIsNotesOpen] = useState<boolean>(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState<boolean>(false);
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState<boolean>(false);
+  const [challengeOrigin, setChallengeOrigin] = useState<'voice' | 'chat'>('voice');
   const [devPasswordPromptMessage, setDevPasswordPromptMessage] = useState<string>(() => BEFORE_DEV_IDENTIFICATION_MESSAGES[0]);
   const [devPasswordInput, setDevPasswordInput] = useState<string>('');
   const [isRebootModalOpen, setIsRebootModalOpen] = useState<boolean>(false);
   const [rebootPasswordInput, setRebootPasswordInput] = useState<string>('');
   const [rebootFeedbackMessage, setRebootFeedbackMessage] = useState<string>('');
   const [isDeveloperAuthenticated, setIsDeveloperAuthenticated] = useState<boolean>(() => {
-    return localStorage.getItem('iris_is_developer') === 'true';
+    // Clear legacy persistent storage so every fresh session starts strictly unauthenticated
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem('iris_is_developer');
+    }
+    if (typeof sessionStorage !== 'undefined') {
+      sessionStorage.removeItem('iris_is_developer');
+      sessionStorage.removeItem('iris_developer_failed');
+    }
+    return false;
   });
   const [hasDeveloperAuthenticationFailed, setHasDeveloperAuthenticationFailed] = useState<boolean>(() => {
-    return localStorage.getItem('iris_developer_failed') === 'true';
+    return typeof sessionStorage !== 'undefined' && sessionStorage.getItem('iris_developer_failed') === 'true';
   });
   const [authFeedbackMessage, setAuthFeedbackMessage] = useState<string>('');
   const [unreadNotifCount, setUnreadNotifCount] = useState<number>(0);
@@ -144,51 +153,143 @@ export default function App() {
   const [imageEditorInstruction, setImageEditorInstruction] = useState<string>('');
   const [imageEditorAction, setImageEditorAction] = useState<string>('general');
 
-  // Real-Time Word-by-Word Synchronized Speech Caption Engine (Blink-Free Stable Keys)
+  // Real-Time Speech-Synchronized Sentence/Line Caption Engine
   const [isCaptionVisible, setIsCaptionVisible] = useState<boolean>(false);
-  const [spokenWords, setSpokenWords] = useState<Array<{ id: number; text: string }>>([]);
-  const wordsQueueRef = useRef<string[]>([]);
-  const captionFadeTimeoutRef = useRef<number | null>(null);
-  const wordIdCounterRef = useRef<number>(0);
+  const [captionLine, setCaptionLine] = useState<string>('');
+  const [captionKey, setCaptionKey] = useState<number>(0);
+  const [isLineFadingOut, setIsLineFadingOut] = useState<boolean>(false);
 
-  // Dynamic Adaptive Speed Word-by-Word Speech Caption Engine
-  useEffect(() => {
-    let timeoutId: number | null = null;
+  const sentenceQueueRef = useRef<string[]>([]);
+  const currentSentenceRef = useRef<string>('');
+  const isSentencePlayingRef = useRef<boolean>(false);
+  const sentenceTimerRef = useRef<number | null>(null);
+  const sentenceFadeTimerRef = useRef<number | null>(null);
+  const captionLingerTimerRef = useRef<number | null>(null);
 
-    const tick = () => {
-      if (wordsQueueRef.current.length > 0) {
-        const nextWord = wordsQueueRef.current.shift()!;
-        setIsCaptionVisible(true);
-        const newWordObj = { id: ++wordIdCounterRef.current, text: nextWord };
-        setSpokenWords((prev) => {
-          const updated = [...prev, newWordObj];
-          if (updated.length > 18) {
-            return updated.slice(updated.length - 18);
-          }
-          return updated;
-        });
-
-        if (captionFadeTimeoutRef.current) clearTimeout(captionFadeTimeoutRef.current);
-        captionFadeTimeoutRef.current = setTimeout(() => {
-          setIsCaptionVisible(false);
-          setSpokenWords([]);
-        }, 3200) as unknown as number;
-
-        // Dynamic speed adaptation: if queue has many words, speed up to keep exact audio sync!
-        const queueLen = wordsQueueRef.current.length;
-        const delay = queueLen > 8 ? 35 : queueLen > 3 ? 55 : 90;
-        timeoutId = setTimeout(tick, delay) as unknown as number;
-      } else {
-        timeoutId = setTimeout(tick, 100) as unknown as number;
-      }
-    };
-
-    timeoutId = setTimeout(tick, 90) as unknown as number;
-
-    return () => {
-      if (timeoutId) clearTimeout(timeoutId);
-    };
+  const resetCaptions = useCallback(() => {
+    if (captionLingerTimerRef.current) clearTimeout(captionLingerTimerRef.current);
+    if (sentenceTimerRef.current) clearTimeout(sentenceTimerRef.current);
+    if (sentenceFadeTimerRef.current) clearTimeout(sentenceFadeTimerRef.current);
+    captionLingerTimerRef.current = null;
+    sentenceTimerRef.current = null;
+    sentenceFadeTimerRef.current = null;
+    sentenceQueueRef.current = [];
+    currentSentenceRef.current = '';
+    isSentencePlayingRef.current = false;
+    setIsLineFadingOut(false);
+    setCaptionLine('');
+    setIsCaptionVisible(false);
   }, []);
+
+  const playNextSentence = useCallback(() => {
+    if (sentenceQueueRef.current.length === 0) {
+      isSentencePlayingRef.current = false;
+      return;
+    }
+
+    isSentencePlayingRef.current = true;
+    const nextSentence = sentenceQueueRef.current.shift()!;
+    setIsCaptionVisible(true);
+    setCaptionLine(nextSentence);
+    setCaptionKey((k) => k + 1);
+    setIsLineFadingOut(false);
+
+    // Precise speech pacing: ~260-280ms per word + natural sentence pause (400ms)
+    const words = nextSentence.split(/\s+/).filter(Boolean);
+    const hasPunctuation = /[.!?]$/.test(nextSentence) || /[,;:]$/.test(nextSentence);
+    const queueLen = sentenceQueueRef.current.length;
+    const msPerWord = queueLen > 2 ? 210 : queueLen > 1 ? 240 : 280;
+    const duration = Math.max(1400, words.length * msPerWord + (hasPunctuation ? 450 : 0));
+
+    if (sentenceTimerRef.current) clearTimeout(sentenceTimerRef.current);
+    sentenceTimerRef.current = setTimeout(() => {
+      if (sentenceQueueRef.current.length > 0) {
+        // Current sentence complete -> fade out and transition to next sentence
+        setIsLineFadingOut(true);
+        if (sentenceFadeTimerRef.current) clearTimeout(sentenceFadeTimerRef.current);
+        sentenceFadeTimerRef.current = setTimeout(() => {
+          playNextSentence();
+        }, 150) as unknown as number;
+      } else {
+        isSentencePlayingRef.current = false;
+      }
+    }, duration) as unknown as number;
+  }, []);
+
+  const handleIncomingSpeechText = useCallback((cleanText: string) => {
+    if (!cleanText.trim()) return;
+
+    if (captionLingerTimerRef.current) {
+      clearTimeout(captionLingerTimerRef.current);
+      captionLingerTimerRef.current = null;
+    }
+
+    currentSentenceRef.current += (currentSentenceRef.current ? ' ' : '') + cleanText.trim();
+
+    let text = currentSentenceRef.current;
+    const extractedSentences: string[] = [];
+
+    // Intelligently segment into complete thoughts / sentences
+    while (text.length > 0) {
+      // 1. Natural sentence terminators (. ? ! \n)
+      const sentenceMatch = text.match(/^([\s\S]+?[.?!]+|\n)(?:\s+|$)/);
+      if (sentenceMatch) {
+        extractedSentences.push(sentenceMatch[1].trim());
+        text = text.slice(sentenceMatch[0].length).trim();
+        continue;
+      }
+
+      // 2. Only split very long thoughts (>12 words) at natural conjunction or comma clause breaks
+      const words = text.split(/\s+/);
+      if (words.length >= 12) {
+        let splitIdx = -1;
+        // Search backwards from word 10 down to word 5 for a comma or strong conjunction
+        for (let i = Math.min(words.length - 2, 10); i >= 5; i--) {
+          const w = words[i];
+          if (/[,;:]$/.test(w) || /^(aur|and|lekin|but|kyunki|because|so|to|ki|which|that)$/i.test(words[i + 1])) {
+            splitIdx = i + 1;
+            break;
+          }
+        }
+        if (splitIdx > 0) {
+          const clause = words.slice(0, splitIdx).join(' ');
+          extractedSentences.push(clause.trim());
+          text = words.slice(splitIdx).join(' ').trim();
+          continue;
+        } else if (words.length >= 14) {
+          // Fallback if no punctuation exists in 14+ words
+          const clause = words.slice(0, 10).join(' ');
+          extractedSentences.push(clause.trim());
+          text = words.slice(10).join(' ').trim();
+          continue;
+        }
+      }
+
+      break;
+    }
+
+    currentSentenceRef.current = text;
+
+    if (extractedSentences.length > 0) {
+      sentenceQueueRef.current.push(...extractedSentences);
+      if (!isSentencePlayingRef.current) {
+        if (captionLine) {
+          setIsLineFadingOut(true);
+          if (sentenceFadeTimerRef.current) clearTimeout(sentenceFadeTimerRef.current);
+          sentenceFadeTimerRef.current = setTimeout(() => {
+            playNextSentence();
+          }, 150) as unknown as number;
+        } else {
+          playNextSentence();
+        }
+      }
+    } else if (!isSentencePlayingRef.current && text.length > 0) {
+      // If nothing is playing and text is building up, show it live
+      setIsCaptionVisible(true);
+      setCaptionLine(text);
+      setIsLineFadingOut(false);
+    }
+  }, [playNextSentence, captionLine]);
 
   // Smooth gesture overscroll engine (Windows Wheel + Android Touch Swipe)
   const [overscrollY, setOverscrollY] = useState<number>(0);
@@ -593,6 +694,7 @@ export default function App() {
     };
 
     const handleDevChallenge = () => {
+      setChallengeOrigin('voice');
       const chosen = BEFORE_DEV_IDENTIFICATION_MESSAGES[Math.floor(Math.random() * BEFORE_DEV_IDENTIFICATION_MESSAGES.length)];
       setDevPasswordPromptMessage(chosen);
       setIsPasswordModalOpen(true);
@@ -684,14 +786,33 @@ export default function App() {
       }
     };
 
+    const handleOpenHistory = (e: any) => {
+      const person = e.detail?.personName || 'All';
+      setHistoryPersonFilter(person);
+      setIsHistoryModalOpen(true);
+    };
+
+    const handleDeleteHistoryChallenge = (e: any) => {
+      const person = e.detail?.personName || 'All';
+      setDeleteHistoryTargetPerson(person);
+      setIsDeleteHistoryModalOpen(true);
+    };
+
+    const handleOpenTelemetry = () => {
+      updateOverscroll(540);
+    };
+
     window.addEventListener('iris-open-map', handleOpenMap);
     window.addEventListener('iris-map-control', handleMapControl);
     window.addEventListener('gmp-quota-exceeded', handleQuotaExceeded);
     window.addEventListener('iris-open-location-settings', handleOpenLocationSettings);
     window.addEventListener('iris-request-screenshare', handleRequestScreenShare);
     window.addEventListener('iris-open-chat', handleOpenChat);
+    window.addEventListener('iris-open-telemetry', handleOpenTelemetry);
     window.addEventListener('iris-dev-challenge', handleDevChallenge);
     window.addEventListener('iris-reboot-challenge', handleRebootChallenge);
+    window.addEventListener('iris-open-history', handleOpenHistory);
+    window.addEventListener('iris-delete-history-challenge', handleDeleteHistoryChallenge);
     window.addEventListener('iris-modify-image-request', handleModifyImageRequest);
     window.addEventListener('iris-show-structured-list', handleShowStructuredList);
     window.addEventListener('iris-update-spreadsheet', handleUpdateSpreadsheet);
@@ -706,8 +827,11 @@ export default function App() {
       window.removeEventListener('iris-open-location-settings', handleOpenLocationSettings);
       window.removeEventListener('iris-request-screenshare', handleRequestScreenShare);
       window.removeEventListener('iris-open-chat', handleOpenChat);
+      window.removeEventListener('iris-open-telemetry', handleOpenTelemetry);
       window.removeEventListener('iris-dev-challenge', handleDevChallenge);
       window.removeEventListener('iris-reboot-challenge', handleRebootChallenge);
+      window.removeEventListener('iris-open-history', handleOpenHistory);
+      window.removeEventListener('iris-delete-history-challenge', handleDeleteHistoryChallenge);
       window.removeEventListener('iris-modify-image-request', handleModifyImageRequest);
       window.removeEventListener('iris-show-structured-list', handleShowStructuredList);
       window.removeEventListener('iris-update-spreadsheet', handleUpdateSpreadsheet);
@@ -727,18 +851,30 @@ export default function App() {
         }
 
         if (newState === 'SPEAKING') {
-          if (captionFadeTimeoutRef.current) {
-            clearTimeout(captionFadeTimeoutRef.current);
-            captionFadeTimeoutRef.current = null;
+          if (captionLingerTimerRef.current) {
+            clearTimeout(captionLingerTimerRef.current);
+            captionLingerTimerRef.current = null;
           }
           setIsCaptionVisible(true);
         } else if (newState === 'LISTENING' || newState === 'IDLE' || newState === 'ERROR') {
-          // When Iris finishes speaking, fade out caption
-          if (captionFadeTimeoutRef.current) clearTimeout(captionFadeTimeoutRef.current);
-          captionFadeTimeoutRef.current = setTimeout(() => {
+          // Flush any remaining buffered speech text into sentence queue
+          if (currentSentenceRef.current.trim()) {
+            sentenceQueueRef.current.push(currentSentenceRef.current.trim());
+            currentSentenceRef.current = '';
+            if (!isSentencePlayingRef.current) {
+              playNextSentence();
+            }
+          }
+
+          // When Iris finishes speaking, fade out caption after readable linger
+          if (captionLingerTimerRef.current) clearTimeout(captionLingerTimerRef.current);
+          captionLingerTimerRef.current = setTimeout(() => {
             setIsCaptionVisible(false);
-            setSpokenWords([]);
-          }, 3200) as unknown as number;
+            setCaptionLine('');
+            sentenceQueueRef.current = [];
+            currentSentenceRef.current = '';
+            isSentencePlayingRef.current = false;
+          }, 2800) as unknown as number;
 
           setConversationTurns((prev) => {
             const last = prev[prev.length - 1];
@@ -756,12 +892,8 @@ export default function App() {
         const cleanText = toEnglishAlphabets(text);
         if (!cleanText.trim()) return;
 
-        // Push individual words into queue for word-by-word real-time speech sync
-        const words = cleanText.split(/\s+/).filter(Boolean);
-        if (words.length > 0) {
-          wordsQueueRef.current.push(...words);
-          setIsCaptionVisible(true);
-        }
+        // Feed speech stream directly into line-by-line real-time crossfade caption engine
+        handleIncomingSpeechText(cleanText);
 
         setConversationTurns((prev) => {
           const lastIndex = prev.length - 1;
@@ -810,10 +942,7 @@ export default function App() {
       onUserTranscription: (text) => {
         const cleanUserText = toEnglishAlphabets(text);
         setUserText(cleanUserText);
-        wordsQueueRef.current = [];
-        setSpokenWords([]);
-        setIsCaptionVisible(false);
-        if (captionFadeTimeoutRef.current) clearTimeout(captionFadeTimeoutRef.current);
+        resetCaptions();
         if (!cleanUserText.trim()) return;
 
         // Auto-detect Dev claim to show password pop-up
@@ -936,12 +1065,32 @@ export default function App() {
         });
       },
       onToolAction: (actionInfo) => {
-        setLastAction({
-          ...actionInfo,
-          timestamp: Date.now(),
-        });
+        // Only set lastAction for external apps / system tools (not internal modals)
+        const isInternalModal = 
+          actionInfo.name === 'openConversationHistory' ||
+          actionInfo.name === 'openChatHistory' ||
+          actionInfo.name === 'showConversationHistory' ||
+          actionInfo.name === 'showChatHistory' ||
+          actionInfo.name === 'openChatPanel' ||
+          actionInfo.name === 'openChat' ||
+          actionInfo.name === 'openTelemetryPanel' ||
+          actionInfo.name === 'showTelemetry' ||
+          actionInfo.name === 'triggerDevChallenge' ||
+          actionInfo.name === 'triggerRebootChallenge' ||
+          actionInfo.name === 'triggerDeleteHistoryChallenge';
 
-        if (actionInfo.name === 'showLink' && actionInfo.result?.data) {
+        if (!isInternalModal) {
+          setLastAction({
+            ...actionInfo,
+            timestamp: Date.now(),
+          });
+        }
+
+        if (actionInfo.name === 'openTelemetryPanel' || actionInfo.name === 'showTelemetry') {
+          updateOverscroll(540);
+        } else if (actionInfo.name === 'openChatPanel' || actionInfo.name === 'openChat') {
+          setIsChatOpen(true);
+        } else if (actionInfo.name === 'showLink' && actionInfo.result?.data) {
           setGeneratedContentData(actionInfo.result.data);
           setIsGeneratedContentOpen(true);
         } else if (actionInfo.name === 'retrieveFile' && actionInfo.result?.data) {
@@ -966,6 +1115,22 @@ export default function App() {
             setSpreadsheetData(actionInfo.result.data);
             setIsSpreadsheetOpen(true);
           }
+        } else if (
+          actionInfo.name === 'openConversationHistory' ||
+          actionInfo.name === 'openChatHistory' ||
+          actionInfo.name === 'showConversationHistory' ||
+          actionInfo.name === 'showChatHistory'
+        ) {
+          const person = actionInfo.args?.personName || actionInfo.args?.name || 'All';
+          setHistoryPersonFilter(person);
+          setIsHistoryModalOpen(true);
+        } else if (
+          actionInfo.name === 'triggerDeleteHistoryChallenge' ||
+          actionInfo.name === 'deleteConversationHistory' ||
+          actionInfo.name === 'deleteChatHistory'
+        ) {
+          setDeleteHistoryTargetPerson(actionInfo.args?.personName || actionInfo.args?.name || 'All');
+          setIsDeleteHistoryModalOpen(true);
         } else if (
           actionInfo.name === 'triggerRebootChallenge' || 
           actionInfo.name === 'rebootChallenge' || 
@@ -1343,6 +1508,7 @@ export default function App() {
           onOpenNotes={() => setIsNotesOpen(true)}
           onOpenNotifications={() => setIsNotificationsOpen(true)}
           onOpenContacts={() => setIsContactsOpen(true)}
+          onOpenHistory={() => setIsHistoryModalOpen(true)}
           unreadCount={unreadNotifCount}
           theme={theme}
         />
@@ -1485,9 +1651,9 @@ export default function App() {
             </div>
 
             {/* Conversation list panel */}
-            <div className="flex-1 overflow-y-auto pr-1">
+            <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
               <ConversationHistoryPanel
-                turns={conversationTurns.filter(t => t.role !== 'user')}
+                turns={conversationTurns}
                 state={state}
                 theme={theme}
                 onOpenPopup={(data) => {
@@ -1512,11 +1678,11 @@ export default function App() {
         {/* Centered Orb with attached Captions directly beneath it */}
         <div 
           style={{
-            transform: `translateY(${overscrollProgress < 0.35 ? 0 : ((overscrollProgress - 0.35) / 0.65) * 140}px) scale(${overscrollProgress < 0.35 ? 1.0 : 1.0 - ((overscrollProgress - 0.35) / 0.65) * 0.48})`,
-            filter: `blur(${overscrollProgress * (1 - overscrollProgress) * 12}px) drop-shadow(0 0 ${15 + overscrollProgress * 25}px rgba(6,182,212,${0.25 + overscrollProgress * 0.5}))`,
+            transform: `translateY(${overscrollProgress < 0.35 ? 0 : ((overscrollProgress - 0.35) / 0.65) * 110}px)`,
+            filter: `drop-shadow(0 0 ${15 + overscrollProgress * 25}px rgba(6,182,212,${0.25 + overscrollProgress * 0.5}))`,
             willChange: 'transform, filter',
           }}
-          className="relative z-50 flex flex-col items-center w-full max-w-lg"
+          className="relative z-50 flex flex-col items-center w-full max-w-2xl"
         >
           {/* Central Advanced Ethereal Harmonic Ribbon Orb with I.R.I.S. Central Hologram */}
           <IrisOrb
@@ -1527,11 +1693,11 @@ export default function App() {
             overscrollProgress={overscrollProgress}
           />
 
-          {/* Captions directly attached beneath the Orb! Word-by-Word Progressive Speech Sync */}
+          {/* Captions directly attached beneath the Orb! Line-by-Line Progressive Speech Sync */}
           <div 
             style={{
-              opacity: spokenWords.length > 0 && isCaptionVisible ? Math.max(0, 1 - overscrollProgress * 2.5) : 0,
-              pointerEvents: spokenWords.length > 0 && isCaptionVisible && overscrollProgress < 0.3 ? 'auto' : 'none',
+              opacity: captionLine.length > 0 && isCaptionVisible ? Math.max(0, 1 - overscrollProgress * 2.5) : 0,
+              pointerEvents: captionLine.length > 0 && isCaptionVisible && overscrollProgress < 0.3 ? 'auto' : 'none',
               transition: 'opacity 0.25s cubic-bezier(0.16, 1, 0.3, 1)',
             }}
             className="w-full px-2 mt-1 sm:mt-2"
@@ -1547,22 +1713,22 @@ export default function App() {
                   <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
                   <span className="text-slate-400 font-bold">IRIS SPEECH SYNCHRONIZED CAPTIONS</span>
                 </div>
-                <span className="text-[8px] text-cyan-400 font-bold">WORD BY WORD</span>
+                <span className="text-[8px] text-cyan-400 font-bold">LIVE LINE SYNC</span>
               </div>
-              {/* Word-by-Word Progressive Reveal */}
-              <div className="px-1 text-xs sm:text-sm font-semibold leading-relaxed min-h-[2.25rem] flex items-center justify-center flex-wrap gap-1">
-                {spokenWords.length > 0 ? (
-                  spokenWords.map((wordObj) => (
-                    <span 
-                      key={wordObj.id}
-                      className="inline-block animate-bubble-pop transition-all duration-150"
-                    >
-                      {wordObj.text}
-                    </span>
-                  ))
-                ) : (
-                  <span className="text-slate-400 italic font-normal text-xs">...</span>
-                )}
+              {/* Line-by-Line Dynamic Speech Sync with Smooth Crossfade */}
+              <div className="px-2 py-0.5 min-h-[2.25rem] flex items-center justify-center text-center">
+                <div 
+                  key={captionKey}
+                  className={`transition-all duration-200 transform ${
+                    isLineFadingOut 
+                      ? 'opacity-0 -translate-y-2 filter blur-[1px]' 
+                      : 'opacity-100 translate-y-0 filter blur-0'
+                  }`}
+                >
+                  <p className="text-xs sm:text-sm font-semibold tracking-wide leading-relaxed">
+                    {captionLine}
+                  </p>
+                </div>
               </div>
             </div>
           </div>
@@ -1609,7 +1775,10 @@ export default function App() {
         theme={theme}
         isDeveloperAuthenticated={isDeveloperAuthenticated}
         hasDeveloperAuthenticationFailed={hasDeveloperAuthenticationFailed}
-        onTriggerDevChallenge={() => setIsPasswordModalOpen(true)}
+        onTriggerDevChallenge={() => {
+          setChallengeOrigin('chat');
+          setIsPasswordModalOpen(true);
+        }}
         onTriggerRebootChallenge={() => setIsRebootModalOpen(true)}
         deviceBridge={clientRef.current ? clientRef.current.getDeviceBridge() : new DeviceActionBridge()}
         onToolExecuted={(info) => {
@@ -1949,6 +2118,8 @@ export default function App() {
                     
                     localStorage.removeItem('iris_is_developer');
                     localStorage.removeItem('iris_developer_failed');
+                    sessionStorage.removeItem('iris_is_developer');
+                    sessionStorage.removeItem('iris_developer_failed');
                     setIsDeveloperAuthenticated(false);
                     setHasDeveloperAuthenticationFailed(false);
                     setConversationTurns([]);
@@ -2054,22 +2225,39 @@ export default function App() {
               const trimmedInput = devPasswordInput.trim();
               if (trimmedInput === 'supercalifragilisticexpialidocious') {
                 setAuthFeedbackMessage('');
-                localStorage.setItem('iris_is_developer', 'true');
-                localStorage.removeItem('iris_developer_failed');
+                sessionStorage.setItem('iris_is_developer', 'true');
+                sessionStorage.removeItem('iris_developer_failed');
+                localStorage.removeItem('iris_is_developer');
                 setIsDeveloperAuthenticated(true);
                 setHasDeveloperAuthenticationFailed(false);
+                (window as any).__irisIsDeveloper = true;
+                (window as any).__irisActiveSpeakerName = 'Dev';
+                crossSessionMemory.transferTemporaryHistoryToPerson('Dev');
                 setDevPasswordInput('');
                 setIsPasswordModalOpen(false);
                 
-                // If LiveClient real-time session is active, notify the live session directly (stops previous speech and prevents double voices)
-                if (clientRef.current && clientRef.current.getState() !== 'IDLE' && clientRef.current.getState() !== 'ERROR') {
-                  clientRef.current.sendAuthUpdate(true);
+                const randomGreeting = AFTER_DEV_IDENTIFICATION_MESSAGES[
+                  Math.floor(Math.random() * AFTER_DEV_IDENTIFICATION_MESSAGES.length)
+                ];
+                setIrisText(randomGreeting);
+
+                // If ChatPanel is open or challenge originated from chat, respond STRICTLY IN TEXT - DO NOT SPEAK ALOUD!
+                const isFromChat = challengeOrigin === 'chat' || isChatOpen;
+                if (isFromChat) {
+                  window.dispatchEvent(
+                    new CustomEvent('iris-chat-dev-verified', {
+                      detail: { message: randomGreeting },
+                    })
+                  );
+                  if (clientRef.current && clientRef.current.getState() !== 'IDLE' && clientRef.current.getState() !== 'ERROR') {
+                    // Inform the live session quietly without generating live speech
+                    clientRef.current.sendAuthUpdate(true, true);
+                  }
+                } else if (clientRef.current && clientRef.current.getState() !== 'IDLE' && clientRef.current.getState() !== 'ERROR') {
+                  // If LiveClient real-time session is active in voice mode, notify the live session to speak once
+                  clientRef.current.sendAuthUpdate(true, false);
                 } else {
-                  // Direct fast randomized greeting with zero latency
-                  const randomGreeting = AFTER_DEV_IDENTIFICATION_MESSAGES[
-                    Math.floor(Math.random() * AFTER_DEV_IDENTIFICATION_MESSAGES.length)
-                  ];
-                  setIrisText(randomGreeting);
+                  // Direct fast randomized greeting with zero latency (voice output only when in voice mode)
                   try {
                     const ttsRes = await fetch('/api/tts', {
                       method: 'POST',
@@ -2089,7 +2277,8 @@ export default function App() {
                 }
               } else {
                 setAuthFeedbackMessage('Incorrect password. Authorization denied.');
-                localStorage.setItem('iris_developer_failed', 'true');
+                sessionStorage.setItem('iris_developer_failed', 'true');
+                sessionStorage.removeItem('iris_is_developer');
                 localStorage.removeItem('iris_is_developer');
                 setIsDeveloperAuthenticated(false);
                 setHasDeveloperAuthenticationFailed(true);
@@ -2126,8 +2315,12 @@ export default function App() {
                     setIsPasswordModalOpen(false);
                     setDevPasswordInput('');
                     setAuthFeedbackMessage('');
-                    if (hasDeveloperAuthenticationFailed) {
-                      triggerDeveloperRejectionGreeting();
+                    setHasDeveloperAuthenticationFailed(true);
+                    sessionStorage.setItem('iris_developer_failed', 'true');
+                    (window as any).__irisIsDeveloper = false;
+                    (window as any).__irisActiveSpeakerName = 'Unidentified Person';
+                    if (clientRef.current && clientRef.current.getState() !== 'IDLE' && clientRef.current.getState() !== 'ERROR') {
+                      clientRef.current.sendAuthUpdate(false, true);
                     }
                   }}
                   className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${

@@ -28,6 +28,7 @@ export interface StoredInteractionMemory {
   type: 'speech_log' | 'chat';
   text: string;
   speakerName?: string;
+  personFolder?: string; // The folder this interaction belongs to (e.g. "Dev", "Unidentified Person", "Rohit")
   isTemporary?: boolean;
   expiresAt?: number;
   entities?: {
@@ -207,6 +208,10 @@ export class CrossSessionMemoryEngine {
       const name = nameMatch[1].trim().split(/[.,!]/)[0];
       this.learnFact('User Name', `User's name is ${name}`, 'personal', text);
       extracted.push(`User Name: ${name}`);
+      this.transferTemporaryHistoryToPerson(name);
+      if (typeof window !== 'undefined') {
+        (window as any).__irisActiveSpeakerName = name;
+      }
     }
 
     // 2. "My favorite X is Y" / "Mera favorite X Y hai"
@@ -327,21 +332,29 @@ export class CrossSessionMemoryEngine {
 
     const learnedFacts = this.extractAndLearnFacts(role, text);
 
-    let speaker = explicitSpeakerName;
-    if (!speaker) {
-      if (typeof window !== 'undefined') {
-        const activeName = (window as any).__irisActiveSpeakerName;
-        if (activeName) speaker = activeName;
-      }
-      if (!speaker) {
-        speaker = role === 'iris' ? 'I.R.I.S.' : 'Dev';
+    // Determine the active conversation partner (person folder)
+    let activePartner: string | null = null;
+    if (explicitSpeakerName && explicitSpeakerName !== 'I.R.I.S.' && explicitSpeakerName !== 'iris') {
+      activePartner = explicitSpeakerName;
+    } else if (typeof window !== 'undefined') {
+      if ((window as any).__irisActiveSpeakerName) {
+        activePartner = (window as any).__irisActiveSpeakerName;
+      } else if ((window as any).__irisIsDeveloper) {
+        activePartner = 'Dev';
       }
     }
 
-    const isUnknown = !speaker || speaker.toLowerCase().includes('unknown') || speaker.toLowerCase().includes('guest');
-    const finalSpeakerName = isUnknown ? 'Unknown' : speaker;
-    const isTemporary = explicitIsTemp !== undefined ? explicitIsTemp : isUnknown;
-    const expiresAt = isTemporary ? Date.now() + 15 * 24 * 60 * 60 * 1000 : undefined; // 15 days
+    // If person's name is not yet identified, save to temporary "Unidentified Person" folder
+    if (!activePartner || activePartner.toLowerCase() === 'unknown' || activePartner.toLowerCase() === 'guest') {
+      activePartner = 'Unidentified Person';
+    }
+
+    const isTemporary = explicitIsTemp !== undefined 
+      ? explicitIsTemp 
+      : (activePartner === 'Unidentified Person');
+    const expiresAt = isTemporary ? Date.now() + 15 * 24 * 60 * 60 * 1000 : undefined; // 15-day dump lifecycle
+
+    const finalSpeakerName = role === 'iris' ? 'I.R.I.S.' : activePartner;
 
     const newMem: StoredInteractionMemory = {
       id: `mem-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
@@ -350,6 +363,7 @@ export class CrossSessionMemoryEngine {
       type,
       text,
       speakerName: finalSpeakerName,
+      personFolder: activePartner,
       isTemporary,
       expiresAt,
       entities: {
@@ -362,10 +376,56 @@ export class CrossSessionMemoryEngine {
     this.interactions.push(newMem);
     this.saveInteractions();
     this.triggerServerSync();
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('iris-history-updated'));
+    }
   }
 
   /**
-   * Delete chat history for a specific person or all
+   * Transfers all interactions currently in the temporary "Unidentified Person" folder
+   * to the newly identified person folder (e.g. "Dev" or "Rohit") when the name becomes known.
+   */
+  public transferTemporaryHistoryToPerson(targetPersonName: string): number {
+    const cleanTarget = (targetPersonName || 'Dev').trim();
+    if (!cleanTarget || cleanTarget.toLowerCase() === 'unidentified person') return 0;
+
+    let transferredCount = 0;
+    this.interactions = this.interactions.map((turn) => {
+      const folder = (turn.personFolder || turn.speakerName || '').trim();
+      const isUnidentified =
+        folder.toLowerCase() === 'unidentified person' ||
+        folder.toLowerCase() === 'unknown' ||
+        folder.toLowerCase() === 'guest' ||
+        turn.isTemporary;
+
+      if (isUnidentified) {
+        transferredCount++;
+        return {
+          ...turn,
+          personFolder: cleanTarget,
+          speakerName: turn.role === 'iris' ? 'I.R.I.S.' : cleanTarget,
+          isTemporary: false,
+          expiresAt: undefined,
+        };
+      }
+      return turn;
+    });
+
+    if (transferredCount > 0) {
+      this.saveInteractions();
+      this.triggerServerSync();
+      if (typeof window !== 'undefined') {
+        (window as any).__irisActiveSpeakerName = cleanTarget;
+        window.dispatchEvent(new CustomEvent('iris-history-updated'));
+      }
+      console.log(`📦 [CrossSessionMemory] Transferred ${transferredCount} turns from "Unidentified Person" to "${cleanTarget}".`);
+    }
+
+    return transferredCount;
+  }
+
+  /**
+   * Delete chat history for a specific person or all (both user turns and Iris turns)
    */
   public deleteInteractionsForPerson(personName: string): number {
     const initialLen = this.interactions.length;
@@ -375,16 +435,42 @@ export class CrossSessionMemoryEngine {
       this.interactions = [];
     } else {
       this.interactions = this.interactions.filter((i) => {
-        const name = (i.speakerName || (i.role === 'iris' ? 'I.R.I.S.' : 'Dev')).toLowerCase();
-        if (cleanName === 'unknown' && name === 'unknown') return false;
-        if (cleanName === 'dev' && (name === 'dev' || name === 'you')) return false;
-        return name !== cleanName;
+        const folder = (i.personFolder || (i.speakerName !== 'I.R.I.S.' ? i.speakerName : '') || '').toLowerCase().trim();
+        const speaker = (i.speakerName || '').toLowerCase().trim();
+
+        if (cleanName === 'unidentified person' || cleanName === 'unknown' || cleanName === 'guest') {
+          if (folder === 'unidentified person' || folder === 'unknown' || folder === 'guest' || i.isTemporary) return false;
+          if (speaker === 'unknown' || speaker === 'unidentified person' || speaker === 'guest') return false;
+        }
+
+        if (cleanName === 'dev') {
+          if (folder === 'dev' || speaker === 'dev' || speaker === 'you') return false;
+        }
+
+        if (folder === cleanName || speaker === cleanName) return false;
+        return true;
       });
     }
 
     const removedCount = initialLen - this.interactions.length;
     this.saveInteractions();
     this.triggerServerSync();
+
+    // Also call server memory deletion endpoint
+    try {
+      fetch('/api/memory/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ personName }),
+      }).catch((err) => console.debug('Server memory delete non-blocking error:', err));
+    } catch (e) {
+      // Non-blocking
+    }
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('iris-history-updated'));
+    }
+
     console.log(`🗑️ [CrossSessionMemory] Deleted ${removedCount} interactions for "${personName}".`);
     return removedCount;
   }

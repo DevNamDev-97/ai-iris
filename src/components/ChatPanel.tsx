@@ -20,7 +20,6 @@ import {
 } from 'lucide-react';
 import { DeviceActionBridge, ToolExecutionResult } from '../services/deviceActionBridge.ts';
 import { MarkdownRenderer } from './MarkdownRenderer.tsx';
-import { FuturisticScrollTrack } from './FuturisticScrollTrack.tsx';
 import { locationService } from '../services/locationService.ts';
 import { crossSessionMemory } from '../services/crossSessionMemory.ts';
 import { toEnglishAlphabets } from '../utils/transliteration.ts';
@@ -66,18 +65,27 @@ const QUICK_PROMPTS = [
   'Write a Python script to parse JSON',
 ];
 
-const WELCOME_MESSAGES = [
-  (name: string) => `Haan bol na ${name}! Main sun rahi hoon. Aaj teri kya help karu? Kuch files analyze karwani hain ya code check karna hai?`,
-  (name: string) => `Oye ${name} yaar! Bol na, kya chal raha hai? Koi photo inspect karwani hai ya screen share start karein?`,
-  (name: string) => `Arey ${name}! Aaja, bta kya help chahiye aaj teri personal assistant Iris ko? Mujhse kuch bhi pooch le!`,
-  (name: string) => `Haan ${name} yaar! Bilkul sun rahi hoon. Bata aaj kya interesting cheez discuss karni hai hume?`,
-  (name: string) => `Hey ${name}! Mast dosti wali vibes ke sath hazir hoon! Chal bata, aaj tera kya plan hai aur main kaise help karu?`,
+const DEV_WELCOME_MESSAGES = [
+  'Arey Dev mere creator! Main sun rahi hoon, bol aaj kya naya create karein?',
+  'Haan Dev! Bilkul active hoon. Bata aaj kya interesting discuss ya build karna hai?',
+  'Arey Dev mere bhai! Aaja, bata aaj kya scene hai?',
+  'Welcome Dev! Bata aaj kya code analyze karwana hai ya feature build karna hai?',
+];
+
+const GUEST_WELCOME_MESSAGES = [
+  'Haan boliye! Main Iris hoon. Main sun rahi hoon, bataiye aaj aapki kya help kar sakti hoon?',
+  'Hello! Main Iris hoon, aapki AI assistant. Bataiye aaj kya explore karna hai?',
+  'Haan ji! Bilkul active hoon. Bataiye aaj kya interesting discuss karein?',
+  'Hello! Main bilkul ready hoon. Kuch files analyze karwani hain ya koi sawaal poochna hai?',
 ];
 
 const getRandomWelcomeMessage = (isDeveloper: boolean) => {
-  const userName = isDeveloper ? 'Dev' : 'yaar';
-  const randomIndex = Math.floor(Math.random() * WELCOME_MESSAGES.length);
-  return WELCOME_MESSAGES[randomIndex](userName);
+  if (isDeveloper) {
+    const randomIndex = Math.floor(Math.random() * DEV_WELCOME_MESSAGES.length);
+    return DEV_WELCOME_MESSAGES[randomIndex];
+  }
+  const randomIndex = Math.floor(Math.random() * GUEST_WELCOME_MESSAGES.length);
+  return GUEST_WELCOME_MESSAGES[randomIndex];
 };
 
 const ChatPanelComponent: React.FC<ChatPanelProps> = ({
@@ -110,6 +118,16 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = ({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const messagesContainerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (messagesContainerRef.current) {
+      messagesContainerRef.current.scrollTo({
+        top: messagesContainerRef.current.scrollHeight,
+        behavior: 'smooth',
+      });
+    }
+  }, [messages, isLoading]);
 
   useEffect(() => {
     if (isOpen) {
@@ -131,6 +149,24 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = ({
         return prev;
       });
     }
+
+    const handleDevVerified = (e: any) => {
+      const msg = e.detail?.message || 'Arey Dev mere creator! Pehchaan confirm ho gayi! Bol aaj kya naya aur mast create karein?';
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `dev-auth-${Date.now()}`,
+          role: 'iris',
+          text: msg,
+          timestamp: Date.now(),
+        },
+      ]);
+    };
+
+    window.addEventListener('iris-chat-dev-verified', handleDevVerified);
+    return () => {
+      window.removeEventListener('iris-chat-dev-verified', handleDevVerified);
+    };
   }, [isOpen, isDeveloperAuthenticated]);
 
   if (!isOpen) return null;
@@ -184,11 +220,26 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = ({
     // Intercept if they say they are Dev and are not yet authenticated
     const hasDevKeyword = text.toLowerCase().match(/\b(dev|developer)\b/i);
     if (hasDevKeyword && !isDeveloperAuthenticated) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `user_${Date.now()}`,
+          role: 'user',
+          text,
+          timestamp: Date.now(),
+        },
+        {
+          id: `iris_${Date.now() + 1}`,
+          role: 'iris',
+          text: 'To identify you as Dev, please write the password in the popup I generated.',
+          timestamp: Date.now() + 1,
+        },
+      ]);
       if (onTriggerDevChallenge) {
         onTriggerDevChallenge();
-        setInputText('');
-        return;
       }
+      setInputText('');
+      return;
     }
 
     // Intercept if they request a reboot
@@ -445,94 +496,93 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = ({
         )}
 
         {/* Message Stream */}
-        <div className="flex-1 overflow-hidden p-3 sm:p-4 relative z-10">
-          <FuturisticScrollTrack className="h-full pr-1.5" autoScrollOnUpdate={messages}>
-            <div className="space-y-4">
-              {messages.map((msg) => (
-                <div
-                  key={msg.id}
-                  className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} space-y-1.5 animate-item-blur`}
-                >
-                  {/* Sender Badge */}
-                  <div className={`flex items-center gap-1.5 text-[10px] font-mono px-1 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                    {msg.role === 'user' ? (
-                      <span className={`${isDark ? 'text-cyan-400' : 'text-blue-700'} font-bold flex items-center gap-1`}>
-                        YOU <User className="w-3 h-3" />
-                      </span>
-                    ) : (
-                      <span className={`${isDark ? 'text-blue-400' : 'text-indigo-700'} font-bold flex items-center gap-1`}>
-                        <Bot className="w-3 h-3" /> I.R.I.S.
-                      </span>
-                    )}
-                    <span>•</span>
-                    <span>{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                  </div>
+        <div 
+          ref={messagesContainerRef}
+          className="flex-1 overflow-y-auto custom-chat-scrollbar p-3 sm:p-4 relative z-10 space-y-4"
+        >
+          {messages.map((msg) => (
+            <div
+              key={msg.id}
+              className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} space-y-1.5 animate-item-blur`}
+            >
+              {/* Sender Badge */}
+              <div className={`flex items-center gap-1.5 text-[10px] font-mono px-1 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                {msg.role === 'user' ? (
+                  <span className={`${isDark ? 'text-cyan-400' : 'text-blue-700'} font-bold flex items-center gap-1`}>
+                    YOU <User className="w-3 h-3" />
+                  </span>
+                ) : (
+                  <span className={`${isDark ? 'text-blue-400' : 'text-indigo-700'} font-bold flex items-center gap-1`}>
+                    <Bot className="w-3 h-3" /> I.R.I.S.
+                  </span>
+                )}
+                <span>•</span>
+                <span>{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+              </div>
 
-                  {/* Message Bubble */}
-                  <div
-                    className={`max-w-[92%] sm:max-w-[85%] rounded-2xl px-4 py-3 text-xs sm:text-sm font-medium shadow-md transition-all ${
-                      msg.role === 'user'
-                        ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-tr-xs shadow-blue-500/20'
-                        : isDark
-                        ? 'bg-slate-900/85 hover:bg-slate-900/95 border border-slate-700 text-slate-100 rounded-tl-xs shadow-slate-950/30 backdrop-blur-md'
-                        : 'bg-white/80 hover:bg-white/90 border border-white/90 text-slate-900 rounded-tl-xs shadow-slate-900/5 backdrop-blur-md'
-                    }`}
-                  >
-                    {/* Attached Files rendering */}
-                    {msg.files && msg.files.length > 0 && (
-                      <div className="mb-3 space-y-2">
-                        {msg.files.map((file) => (
-                          <div
-                            key={file.id}
-                            className={`p-2 rounded-xl flex items-center gap-2.5 text-xs shadow-2xs ${
-                              isDark ? 'bg-slate-950/70 border border-white/10 text-slate-200' : 'bg-white/90 border border-slate-200/80 text-slate-800'
-                            }`}
-                          >
-                            {file.type === 'image' && file.previewUrl ? (
-                              <img
-                                src={file.previewUrl}
-                                alt={file.name}
-                                className="w-12 h-12 object-cover rounded-lg border border-slate-200/30 shrink-0"
-                              />
-                            ) : (
-                              <div className="w-9 h-9 rounded-lg bg-blue-500/20 border border-blue-500/30 flex items-center justify-center text-blue-400 shrink-0">
-                                {file.type === 'video' ? <VideoIcon className="w-4 h-4" /> : <FileCode className="w-4 h-4" />}
-                              </div>
-                            )}
-                            <div className="min-w-0 flex-1">
-                              <div className={`font-semibold truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>{file.name}</div>
-                              <div className="text-[10px] text-slate-400 uppercase font-mono">
-                                {file.type} • {(file.size / 1024).toFixed(1)} KB
-                              </div>
-                            </div>
+              {/* Message Bubble */}
+              <div
+                className={`max-w-[92%] sm:max-w-[85%] rounded-2xl px-4 py-3 text-xs sm:text-sm font-medium shadow-md transition-all ${
+                  msg.role === 'user'
+                    ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-tr-xs shadow-blue-500/20'
+                    : isDark
+                    ? 'bg-slate-900/85 hover:bg-slate-900/95 border border-slate-700 text-slate-100 rounded-tl-xs shadow-slate-950/30 backdrop-blur-md'
+                    : 'bg-white/80 hover:bg-white/90 border border-white/90 text-slate-900 rounded-tl-xs shadow-slate-900/5 backdrop-blur-md'
+                }`}
+              >
+                {/* Attached Files rendering */}
+                {msg.files && msg.files.length > 0 && (
+                  <div className="mb-3 space-y-2">
+                    {msg.files.map((file) => (
+                      <div
+                        key={file.id}
+                        className={`p-2 rounded-xl flex items-center gap-2.5 text-xs shadow-2xs ${
+                          isDark ? 'bg-slate-950/70 border border-white/10 text-slate-200' : 'bg-white/90 border border-slate-200/80 text-slate-800'
+                        }`}
+                      >
+                        {file.type === 'image' && file.previewUrl ? (
+                          <img
+                            src={file.previewUrl}
+                            alt={file.name}
+                            className="w-12 h-12 object-cover rounded-lg border border-slate-200/30 shrink-0"
+                          />
+                        ) : (
+                          <div className="w-9 h-9 rounded-lg bg-blue-500/20 border border-blue-500/30 flex items-center justify-center text-blue-400 shrink-0">
+                            {file.type === 'video' ? <VideoIcon className="w-4 h-4" /> : <FileCode className="w-4 h-4" />}
                           </div>
-                        ))}
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <div className={`font-semibold truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>{file.name}</div>
+                          <div className="text-[10px] text-slate-400 uppercase font-mono">
+                            {file.type} • {(file.size / 1024).toFixed(1)} KB
+                          </div>
+                        </div>
                       </div>
-                    )}
+                    ))}
+                  </div>
+                )}
 
-                    {/* Text Body */}
-                    <div className={`break-words leading-relaxed ${isDark ? 'text-slate-100' : 'text-slate-900'}`}>
-                      <MarkdownRenderer content={msg.text} />
-                    </div>
-                  </div>
+                {/* Text Body */}
+                <div className={`break-words leading-relaxed ${isDark ? 'text-slate-100' : 'text-slate-900'}`}>
+                  <MarkdownRenderer content={msg.text} />
                 </div>
-              ))}
-
-              {isLoading && (
-                <div className={`flex items-start gap-2 text-xs font-mono animate-pulse ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
-                  <div className="w-7 h-7 rounded-lg bg-blue-500/20 border border-blue-500/30 flex items-center justify-center text-blue-400">
-                    <Bot className="w-4 h-4 animate-spin" />
-                  </div>
-                  <div className={`p-3 rounded-2xl flex items-center gap-2 shadow-sm backdrop-blur-md ${
-                    isDark ? 'bg-slate-900/90 border border-slate-700 text-slate-200' : 'bg-white/85 border border-slate-200 text-slate-800'
-                  }`}>
-                    <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-500" />
-                    <span>Iris is analyzing and thinking...</span>
-                  </div>
-                </div>
-              )}
+              </div>
             </div>
-          </FuturisticScrollTrack>
+          ))}
+
+          {isLoading && (
+            <div className={`flex items-start gap-2 text-xs font-mono animate-pulse ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+              <div className="w-7 h-7 rounded-lg bg-blue-500/20 border border-blue-500/30 flex items-center justify-center text-blue-400">
+                <Bot className="w-4 h-4 animate-spin" />
+              </div>
+              <div className={`p-3 rounded-2xl flex items-center gap-2 shadow-sm backdrop-blur-md ${
+                isDark ? 'bg-slate-900/90 border border-slate-700 text-slate-200' : 'bg-white/85 border border-slate-200 text-slate-800'
+              }`}>
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-500" />
+                <span>Iris is analyzing and thinking...</span>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Quick Prompts Carousel */}

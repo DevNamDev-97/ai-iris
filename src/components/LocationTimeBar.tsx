@@ -10,6 +10,7 @@ import {
   RefreshCw,
   Users,
   ShieldAlert,
+  History,
 } from 'lucide-react';
 import { DeviceActionBridge, DeviceLocationInfo } from '../services/deviceActionBridge.ts';
 import { locationService, PreciseLocation } from '../services/locationService.ts';
@@ -21,6 +22,7 @@ interface LocationTimeBarProps {
   onOpenNotes: () => void;
   onOpenNotifications: () => void;
   onOpenContacts: () => void;
+  onOpenHistory?: () => void;
   unreadCount: number;
   theme?: 'light' | 'dark';
 }
@@ -32,6 +34,7 @@ const LocationTimeBarComponent: React.FC<LocationTimeBarProps> = ({
   onOpenNotes,
   onOpenNotifications,
   onOpenContacts,
+  onOpenHistory,
   unreadCount,
   theme = 'light',
 }) => {
@@ -226,6 +229,20 @@ const LocationTimeBarComponent: React.FC<LocationTimeBarProps> = ({
           <Users className="w-3.5 h-3.5 text-purple-500" />
           <span className="hidden xs:inline">Contacts</span>
         </button>
+
+        {onOpenHistory && (
+          <button
+            onClick={onOpenHistory}
+            className={`px-2.5 py-1 rounded-lg border text-[11px] font-medium flex items-center gap-1.5 transition-all spring-button ${
+              isDark
+                ? 'bg-slate-900/90 hover:bg-slate-800 border-slate-700/80 text-slate-200 hover:text-cyan-400'
+                : 'bg-slate-100/90 hover:bg-cyan-50 border-slate-200/80 hover:border-cyan-300 text-slate-700 hover:text-cyan-700'
+            }`}
+          >
+            <History className="w-3.5 h-3.5 text-cyan-500" />
+            <span className="hidden xs:inline">History</span>
+          </button>
+        )}
       </div>
     </div>
   );

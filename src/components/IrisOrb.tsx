@@ -15,6 +15,7 @@ const IrisOrbComponent: React.FC<IrisOrbProps> = ({ state, audioLevel, onClick, 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const audioRef = useRef<number>(audioLevel);
   const stateRef = useRef<AssistantState>(state);
+  const overscrollRef = useRef<number>(overscrollProgress);
   const isDark = theme === 'dark';
 
   useEffect(() => {
@@ -25,7 +26,12 @@ const IrisOrbComponent: React.FC<IrisOrbProps> = ({ state, audioLevel, onClick, 
     stateRef.current = state;
   }, [state]);
 
-  // High-Performance 120 FPS Harmonic Waveform Silk Ribbon Renderer (Pure Solid Black Waves)
+  useEffect(() => {
+    overscrollRef.current = overscrollProgress;
+  }, [overscrollProgress]);
+
+  // High-Performance 120 FPS Harmonic Waveform Silk Ribbon Renderer
+  // Smoothly morphs from circular Iris Orb into straight voice-sensitive audio wave when opening Telemetry Panel
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -38,12 +44,23 @@ const IrisOrbComponent: React.FC<IrisOrbProps> = ({ state, audioLevel, onClick, 
     let smoothAmp = 0;
     let velocityAmp = 0;
     let smoothRotation = 0;
+    let smoothProgress = 0;
+    let smoothCapOpacity = 0;
     let lastTime = performance.now();
 
-    const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
-    const size = 560; // Increased logical canvas size to give ample clearance for waves without cropping
-    canvas.width = size * dpr;
-    canvas.height = size * dpr;
+    const handleResize = () => {
+      if (!canvas) return;
+      const rect = canvas.getBoundingClientRect();
+      const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+      const w = Math.round(rect.width || 440);
+      const h = Math.round(rect.height || 440);
+      if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
+        canvas.width = Math.round(w * dpr);
+        canvas.height = Math.round(h * dpr);
+      }
+    };
+    handleResize();
+    window.addEventListener('resize', handleResize);
 
     const render = (currentTime: number) => {
       const dt = Math.min((currentTime - lastTime) / 1000, 0.05);
@@ -69,14 +86,56 @@ const IrisOrbComponent: React.FC<IrisOrbProps> = ({ state, audioLevel, onClick, 
       const rotSpeed = isActive ? (currentState === 'SPEAKING' ? 0.95 : 0.65) : 0.35;
       smoothRotation += rotSpeed * dt;
 
+      // Telemetry panel transition synchronization
+      const targetProgress = Math.max(0, Math.min(1, overscrollRef.current));
+      const deltaProgress = targetProgress - smoothProgress;
+      smoothProgress += deltaProgress * Math.min(dt * 14, 1);
+      const isClosing = deltaProgress < -0.001;
+      const p = smoothProgress;
+      const smoothP = p * p * (3 - 2 * p); // Silky cubic smoothstep easing
+
+      // Triangular caps fade-in / fade-out animation lifecycle:
+      // - Opening: Fade in starts when telemetry panel is 70% opened (0.70 to 1.0)
+      // - Closing: Fade out starts immediately at onset of closing (1.0) and ends just before telemetry panel closing gets 30% completed (smoothP = 0.72)
+      let targetCapOpacity = 0;
+      if (isClosing) {
+        if (smoothP > 0.72) {
+          targetCapOpacity = (smoothP - 0.72) / (1.0 - 0.72); // Fades out cleanly from 1.0 down to 0 at 0.72 (just before 30% closed)
+        } else {
+          targetCapOpacity = 0;
+        }
+      } else {
+        if (smoothP >= 0.70) {
+          targetCapOpacity = (smoothP - 0.70) / 0.30; // 70% opened reached: fade in smoothly up to 100%
+        } else {
+          targetCapOpacity = 0;
+        }
+      }
+      targetCapOpacity = Math.min(1, Math.max(0, targetCapOpacity));
+      const lerpSpeed = isClosing ? 26 : 16;
+      smoothCapOpacity += (targetCapOpacity - smoothCapOpacity) * Math.min(dt * lerpSpeed, 1);
+
+      const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+      const cssW = canvas.width / dpr;
+      const cssH = canvas.height / dpr;
+
       ctx.save();
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.scale(dpr, dpr);
 
-      const centerX = size / 2;
-      const centerY = size / 2;
-      // Large base radius (136px) creates a wide, open center zone with ample clearance
-      const baseRadius = 136;
+      const centerX = cssW / 2;
+      const centerY = cssH / 2;
+
+      // 1. Base radius for the perfect circular orb (scales gracefully on smaller mobile screens)
+      const baseRadius = Math.min(136, Math.max(90, Math.min(cssW, cssH) * 0.32));
+
+      // 2. Harmonic vertical compression: drops vertical height from 1.0 (circle) down to 0.0 (straight horizontal line)
+      const verticalScale = Math.cos(smoothP * Math.PI * 0.5);
+
+      // 3. Target wave length: exactly 70% of the telemetry panel length
+      const telemetryPanelWidth = Math.min(768, Math.max(280, cssW));
+      const targetWaveLength = telemetryPanelWidth * 0.70;
+      const targetWaveRadius = targetWaveLength / 2;
 
       // Draw Multi-layered Harmonic Silk Ribbon Loops (32 fine lines x 128 points)
       const numLines = 32;
@@ -114,20 +173,18 @@ const IrisOrbComponent: React.FC<IrisOrbProps> = ({ state, audioLevel, onClick, 
 
         ctx.lineWidth = 1.0 + (1 - Math.abs(progress - 0.5) * 2) * 0.85;
 
-        // Pattern Coefficients changes based on processing vs speaking (MUST be strictly integers to avoid horizontal loop tearing)
+        // Pattern Coefficients changes based on processing vs speaking
         let wave1Multiplier = 4;
         let wave2Multiplier = 3;
         let wave3Multiplier = 6;
         let wave4Multiplier = 2;
 
         if (currentState === 'CONNECTING') {
-          // Dense concentric sphere for processing
           wave1Multiplier = 8;
           wave2Multiplier = 5;
           wave3Multiplier = 11;
           wave4Multiplier = 3;
         } else if (currentState === 'SPEAKING') {
-          // Shifting ribbon waves for speaking (using pure integers to prevent tearing)
           wave1Multiplier = 3;
           wave2Multiplier = 2;
           wave3Multiplier = 5;
@@ -140,10 +197,16 @@ const IrisOrbComponent: React.FC<IrisOrbProps> = ({ state, audioLevel, onClick, 
         const morph3 = 0.28 + 0.08 * Math.sin(elapsed * 1.8);
         const morph4 = 0.38 + 0.10 * Math.cos(elapsed * 0.9);
 
+        // Voice wave frequencies for straight compressed wave
+        const waveFreq1 = 3.5;
+        const waveFreq2 = 6.0;
+        const waveFreq3 = 8.5;
+        const layerYOffset = (progress - 0.5) * 8 * smoothP;
+
         for (let j = 0; j <= pointsPerLoop; j++) {
           const theta = (j / pointsPerLoop) * Math.PI * 2;
 
-          // Harmonic multi-frequency parametric rosette equation (using integers + phase modulation)
+          // Harmonic multi-frequency parametric rosette equation
           const wave1 = Math.sin(theta * wave1Multiplier + smoothRotation * 1.2 + phaseOffset + elapsed * 1.5) * lineAmp * morph1;
           const wave2 = Math.cos(theta * wave2Multiplier - smoothRotation * 0.8 + phaseOffset * 1.4 - elapsed * 1.2) * lineAmp * morph2;
           const wave3 = Math.sin(theta * wave3Multiplier + smoothRotation * 2.1 - phaseOffset * 0.6 + elapsed * 2.0) * (lineAmp * morph3);
@@ -151,8 +214,23 @@ const IrisOrbComponent: React.FC<IrisOrbProps> = ({ state, audioLevel, onClick, 
 
           const r = baseRadius + wave1 + wave2 + wave3 + wave4;
 
-          const x = centerX + Math.cos(theta) * r;
-          const y = centerY + Math.sin(theta) * r;
+          // When smoothP = 0: currentRadiusX = r (pure isotropic circle in X and Y!)
+          // When smoothP = 1: currentRadiusX = targetWaveRadius (70% length of telemetry panel!)
+          const currentRadiusX = (1 - smoothP) * r + smoothP * (targetWaveRadius + (wave1 + wave2) * 0.25);
+          const x = centerX + Math.cos(theta) * currentRadiusX;
+
+          // When smoothP = 0: y_ellipse = sin(theta) * r (pure circle!)
+          // As smoothP increases: compresses vertically into an ellipse and then into a straight wave
+          const y_ellipse = Math.sin(theta) * r * verticalScale;
+
+          // Voice-sensitive audio oscillation along the straight line
+          const envelope = Math.abs(Math.sin(theta));
+          const waveH1 = Math.sin(theta * waveFreq1 + elapsed * 3.8 + phaseOffset) * (lineAmp * 1.6);
+          const waveH2 = Math.cos(theta * waveFreq2 - elapsed * 2.4 + progress * 2.2) * (lineAmp * 0.75);
+          const waveH3 = Math.sin(theta * waveFreq3 + elapsed * 4.2) * (lineAmp * 0.35);
+          const voiceWave = (waveH1 + waveH2 + waveH3) * envelope * smoothP + layerYOffset;
+
+          const y = centerY + y_ellipse + voiceWave;
 
           if (j === 0) {
             ctx.moveTo(x, y);
@@ -165,12 +243,91 @@ const IrisOrbComponent: React.FC<IrisOrbProps> = ({ state, audioLevel, onClick, 
         ctx.stroke();
       }
 
+      // Render 2 Glowing Triangular Bars on the starting & end points of the straight wave
+      // to cleanly frame and cap the audio wave endpoints with glowing triangular light chevrons
+      if (smoothCapOpacity > 0.005) {
+        const barOpacity = smoothCapOpacity;
+        const tipRadius = (1 - smoothP) * baseRadius + smoothP * targetWaveRadius;
+        const leftX = centerX - tipRadius;
+        const rightX = centerX + tipRadius;
+        const tipY = centerY;
+
+        // Triangular dimensions (compact vertical height, prominent triangular width)
+        const triHeight = 22;
+        const triWidth = 14;
+
+        const drawTrianglePath = (cx: number, cy: number, w: number, h: number, dir: 'right' | 'left') => {
+          const hw = w / 2;
+          const hh = h / 2;
+          ctx.beginPath();
+          if (dir === 'right') {
+            ctx.moveTo(cx + hw, cy);
+            ctx.lineTo(cx - hw, cy - hh);
+            ctx.lineTo(cx - hw, cy + hh);
+          } else {
+            ctx.moveTo(cx - hw, cy);
+            ctx.lineTo(cx + hw, cy - hh);
+            ctx.lineTo(cx + hw, cy + hh);
+          }
+          ctx.closePath();
+        };
+
+        const drawGlowingTriangle = (bx: number, by: number, dir: 'right' | 'left') => {
+          ctx.save();
+          ctx.globalAlpha = barOpacity;
+          ctx.lineJoin = 'round';
+
+          // 1. Broad soft ambient neon glow around the triangle
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+          ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+          ctx.lineWidth = 6;
+          drawTrianglePath(bx, by, triWidth + 6, triHeight + 6, dir);
+          ctx.fill();
+          ctx.stroke();
+
+          // Vibrant energy aura
+          const auraColor = currentState === 'SPEAKING' 
+            ? 'rgba(34, 211, 238, 0.45)' 
+            : 'rgba(255, 255, 255, 0.38)';
+          ctx.fillStyle = auraColor;
+          ctx.strokeStyle = auraColor;
+          ctx.lineWidth = 3;
+          drawTrianglePath(bx, by, triWidth + 2, triHeight + 2, dir);
+          ctx.fill();
+          ctx.stroke();
+
+          // 2. High-intensity glowing white core
+          ctx.shadowColor = '#ffffff';
+          ctx.shadowBlur = 12;
+          ctx.fillStyle = '#ffffff';
+          ctx.strokeStyle = '#ffffff';
+          ctx.lineWidth = 2;
+          drawTrianglePath(bx, by, triWidth, triHeight, dir);
+          ctx.fill();
+          ctx.stroke();
+
+          // 3. Crisp bright center specular highlight
+          ctx.shadowBlur = 0;
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+          drawTrianglePath(bx, by, triWidth * 0.55, triHeight * 0.55, dir);
+          ctx.fill();
+
+          ctx.restore();
+        };
+
+        drawGlowingTriangle(leftX, tipY, 'right');
+        drawGlowingTriangle(rightX, tipY, 'left');
+      }
+
       ctx.restore();
       animId = requestAnimationFrame(render);
     };
 
     animId = requestAnimationFrame(render);
-    return () => cancelAnimationFrame(animId);
+    return () => {
+      cancelAnimationFrame(animId);
+      window.removeEventListener('resize', handleResize);
+    };
   }, []);
 
   const handleContainerClick = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -208,7 +365,7 @@ const IrisOrbComponent: React.FC<IrisOrbProps> = ({ state, audioLevel, onClick, 
   };
 
   return (
-    <div className="flex flex-col items-center justify-center select-none relative my-2">
+    <div className="flex flex-col items-center justify-center select-none relative my-2 w-full">
       {/* Clickable Floating Harmonic Wave Canvas Container */}
       <div
         role="button"
@@ -221,7 +378,7 @@ const IrisOrbComponent: React.FC<IrisOrbProps> = ({ state, audioLevel, onClick, 
             onClick();
           }
         }}
-        className="relative w-80 h-80 sm:w-96 sm:h-96 md:w-[440px] md:h-[440px] flex items-center justify-center cursor-pointer group transition-transform duration-300 active:scale-95 will-change-transform outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 rounded-full"
+        className="relative w-full max-w-[720px] h-[340px] sm:h-[380px] md:h-[440px] flex items-center justify-center cursor-pointer group transition-transform duration-300 active:scale-95 will-change-transform outline-none"
       >
         {/* Click Shockwave Ripples */}
         {ripples.map((ripple) => (
@@ -238,9 +395,9 @@ const IrisOrbComponent: React.FC<IrisOrbProps> = ({ state, audioLevel, onClick, 
           />
         ))}
 
-        {/* 1. Subtle Clean Ambient Halo Behind the Waves */}
+        {/* 1. Subtle Clean Ambient Circular Halo Behind the Waves */}
         <div
-          className="absolute inset-8 rounded-full blur-3xl transition-all duration-500 pointer-events-none will-change-transform opacity-30"
+          className="absolute w-64 h-64 sm:w-80 sm:h-80 rounded-full blur-3xl transition-all duration-500 pointer-events-none will-change-transform opacity-30"
           style={{
             background:
               state === 'ERROR'
@@ -251,18 +408,17 @@ const IrisOrbComponent: React.FC<IrisOrbProps> = ({ state, audioLevel, onClick, 
                 ? 'radial-gradient(circle, rgba(30, 58, 138, 0.2) 0%, transparent 70%)'
                 : 'radial-gradient(circle, rgba(203, 213, 225, 0.4) 0%, transparent 70%)',
             transform: `scale(${scaleMultiplier * 1.1})`,
+            opacity: Math.max(0, 0.3 * (1 - overscrollProgress * 2.0)),
           }}
         />
 
-        {/* 2. HTML5 Canvas Rendering Pure Solid Black Harmonic Ribbon Waves */}
+        {/* 2. HTML5 Canvas Rendering Harmonic Ribbon Waves */}
         <canvas
           ref={canvasRef}
           style={{
             position: 'absolute',
-            width: '125%',
-            height: '125%',
-            left: '-12.5%',
-            top: '-12.5%',
+            width: '100%',
+            height: '100%',
             transform: `scale(${scaleMultiplier})`,
             filter: state === 'ERROR' ? 'drop-shadow(0 0 10px rgba(239, 68, 68, 0.4))' : 'drop-shadow(0 2px 6px rgba(0, 0, 0, 0.12))',
             opacity: 1.0,

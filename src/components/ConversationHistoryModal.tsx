@@ -16,7 +16,6 @@ import {
 import { crossSessionMemory, StoredInteractionMemory } from '../services/crossSessionMemory.ts';
 import { MarkdownRenderer } from './MarkdownRenderer.tsx';
 import { toEnglishAlphabets } from '../utils/transliteration.ts';
-import { FuturisticScrollTrack } from './FuturisticScrollTrack.tsx';
 
 interface ConversationHistoryModalProps {
   isOpen: boolean;
@@ -50,14 +49,19 @@ export const ConversationHistoryModal: React.FC<ConversationHistoryModalProps> =
         cleanTarget === 'latest' ||
         cleanTarget === 'recent' ||
         cleanTarget === 'abhi ki' ||
-        cleanTarget === 'tatkaal'
+        cleanTarget === 'tatkaal' ||
+        cleanTarget === 'all'
       ) {
-        // Find speaker of the latest non-iris interaction
-        const latestUserTurn = [...allInt].reverse().find((t) => t.role === 'user');
-        if (latestUserTurn && latestUserTurn.speakerName) {
-          targetPerson = latestUserTurn.speakerName;
-        } else {
-          targetPerson = 'Unknown';
+        targetPerson = 'All';
+      } else {
+        const hasSpeaker = allInt.some((t) => {
+          const folder = (t.personFolder || t.speakerName || '').toLowerCase().trim();
+          return folder === cleanTarget ||
+            (cleanTarget === 'dev' && (folder === 'dev' || t.speakerName?.toLowerCase() === 'you' || t.role === 'user')) ||
+            (cleanTarget === 'unidentified person' && (folder === 'unidentified person' || folder === 'unknown' || t.isTemporary));
+        });
+        if (!hasSpeaker) {
+          targetPerson = 'All';
         }
       }
 
@@ -65,30 +69,52 @@ export const ConversationHistoryModal: React.FC<ConversationHistoryModalProps> =
     }
   }, [isOpen, initialPersonName]);
 
+  // Listen to cross-session memory updates (deletion, name learning, additions)
+  useEffect(() => {
+    const handleUpdate = () => {
+      setInteractions(crossSessionMemory.getAllInteractions());
+    };
+    window.addEventListener('iris-history-updated', handleUpdate);
+    return () => window.removeEventListener('iris-history-updated', handleUpdate);
+  }, []);
+
   if (!isOpen) return null;
 
-  // Extract unique speaker list from history
+  // Extract unique person folders from history (NEVER include I.R.I.S.)
   const peopleList: string[] = ['All'];
   interactions.forEach((item) => {
-    const name = item.speakerName || (item.role === 'iris' ? 'I.R.I.S.' : 'Dev');
-    if (name && !peopleList.includes(name)) {
-      peopleList.push(name);
+    let folder = (item.personFolder || (item.speakerName !== 'I.R.I.S.' ? item.speakerName : '') || 'Unidentified Person').trim();
+    if (folder.toLowerCase() === 'unknown' || folder.toLowerCase() === 'guest') {
+      folder = 'Unidentified Person';
+    }
+    if (folder !== 'I.R.I.S.' && !peopleList.includes(folder)) {
+      peopleList.push(folder);
     }
   });
 
-  // Filter interactions by person and search query
+  if (peopleList.length === 1) {
+    peopleList.push('Unidentified Person');
+  }
+
+  // Filter interactions by person folder and search query
   const filteredInteractions = interactions.filter((turn) => {
-    const speaker = turn.speakerName || (turn.role === 'iris' ? 'I.R.I.S.' : 'Dev');
+    let folder = (turn.personFolder || (turn.speakerName !== 'I.R.I.S.' ? turn.speakerName : '') || 'Unidentified Person').trim();
+    if (folder.toLowerCase() === 'unknown' || folder.toLowerCase() === 'guest') {
+      folder = 'Unidentified Person';
+    }
+
     const matchesPerson =
       selectedPerson === 'All' ||
-      speaker.toLowerCase() === selectedPerson.toLowerCase() ||
-      (selectedPerson.toLowerCase() === 'dev' && (speaker.toLowerCase() === 'you' || turn.role === 'user'));
+      folder.toLowerCase() === selectedPerson.toLowerCase() ||
+      (selectedPerson.toLowerCase() === 'dev' && (folder.toLowerCase() === 'dev' || turn.speakerName?.toLowerCase() === 'you')) ||
+      (selectedPerson.toLowerCase() === 'unidentified person' && (folder.toLowerCase() === 'unidentified person' || turn.isTemporary));
 
     const queryLower = searchQuery.toLowerCase().trim();
     const matchesQuery =
       !queryLower ||
       turn.text.toLowerCase().includes(queryLower) ||
-      speaker.toLowerCase().includes(queryLower);
+      folder.toLowerCase().includes(queryLower) ||
+      (turn.speakerName || '').toLowerCase().includes(queryLower);
 
     return matchesPerson && matchesQuery;
   });
@@ -226,7 +252,7 @@ export const ConversationHistoryModal: React.FC<ConversationHistoryModalProps> =
         </div>
 
         {/* Conversation Stream Timeline */}
-        <FuturisticScrollTrack className="flex-1 p-5 bg-transparent">
+        <div className="flex-1 overflow-y-auto custom-chat-scrollbar p-5 bg-transparent">
           <div className="space-y-4 pr-1">
             {filteredInteractions.length === 0 ? (
               <div className="py-16 text-center space-y-3">
@@ -240,8 +266,8 @@ export const ConversationHistoryModal: React.FC<ConversationHistoryModalProps> =
               </div>
             ) : (
               filteredInteractions.map((turn, idx) => {
-                const speakerName = turn.speakerName || (turn.role === 'iris' ? 'I.R.I.S.' : 'Dev');
                 const isIris = turn.role === 'iris';
+                const speakerName = isIris ? 'I.R.I.S.' : (turn.speakerName || turn.personFolder || 'Unidentified Person');
 
                 return (
                   <div
@@ -293,7 +319,7 @@ export const ConversationHistoryModal: React.FC<ConversationHistoryModalProps> =
               })
             )}
           </div>
-        </FuturisticScrollTrack>
+        </div>
       </div>
     </div>
   );

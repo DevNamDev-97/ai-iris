@@ -98,7 +98,7 @@ export const DeleteHistoryModal: React.FC<DeleteHistoryModalProps> = ({
                     setPasswordInput(e.target.value);
                     if (errorMsg) setErrorMsg('');
                   }}
-                  placeholder="Enter deletion password (9131123126)..."
+                  placeholder="Enter deletion password..."
                   autoFocus
                   className={`w-full pl-10 pr-4 py-3 rounded-2xl text-xs sm:text-sm border font-mono focus:outline-none focus:ring-2 ${
                     isDark

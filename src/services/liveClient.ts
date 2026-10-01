@@ -39,6 +39,7 @@ export class LiveClient {
   private isSpeaking = false;
   private lastUserSpeechTimestamp = 0;
   private turnPendingCompletion = false;
+  private suppressNextAudioTurn = false;
   private lastAcousticSendTime = 0;
   private lastSentSpeakerName = '';
 
@@ -121,8 +122,8 @@ export class LiveClient {
       if (locInfo.city) params.set('city', locInfo.city);
       if (locInfo.formattedTime) params.set('time', locInfo.formattedTime);
       if (locInfo.formattedDate) params.set('date', locInfo.formattedDate);
-      const isDeveloper = localStorage.getItem('iris_is_developer') === 'true';
-      const developerFailed = localStorage.getItem('iris_developer_failed') === 'true';
+      const isDeveloper = sessionStorage.getItem('iris_is_developer') === 'true';
+      const developerFailed = sessionStorage.getItem('iris_developer_failed') === 'true';
       if (isDeveloper) params.set('isDev', 'true');
       if (developerFailed) params.set('mismatch', 'true');
 
@@ -153,9 +154,6 @@ export class LiveClient {
       this.ws.onclose = (event) => {
         console.log(`🔒 [LiveClient] WebSocket closed (${event.code}, reason: ${event.reason})`);
         const isErrorState = this.state === 'ERROR';
-        if (!isErrorState) {
-          this.setState('IDLE');
-        }
         this.stop(isErrorState);
       };
 
@@ -197,7 +195,7 @@ export class LiveClient {
       console.error('❌ [LiveClient] Failed to start Live session:', err);
       this.setState('ERROR');
       this.callbacks.onError(err?.message || 'Failed to start Live session');
-      this.stop();
+      this.stop(true);
     }
   }
 
@@ -214,6 +212,11 @@ export class LiveClient {
         break;
 
       case 'audio': {
+        // Drop any duplicate post-tool prompt audio from model
+        if (this.suppressNextAudioTurn) {
+          console.log('🔇 [LiveClient] Suppressing duplicate post-security tool prompt audio');
+          break;
+        }
         // Model generated native audio!
         console.log(`🎵 [LiveClient] Response contains native audio (mime: ${msg.mimeType || 'unknown'}, len: ${msg.data?.length})`);
         try {
@@ -230,6 +233,9 @@ export class LiveClient {
 
       case 'transcription': {
         // Output text from model
+        if (this.suppressNextAudioTurn) {
+          break;
+        }
         const cleanIrisText = toEnglishAlphabets(msg.text || '');
         console.log(`💬 [LiveClient] Model transcription: "${cleanIrisText}"`);
         this.callbacks.onIrisTranscription(cleanIrisText);
@@ -253,6 +259,7 @@ export class LiveClient {
       case 'turnComplete': {
         console.log('🏁 [LiveClient] Turn complete');
         this.turnPendingCompletion = true;
+        this.suppressNextAudioTurn = false;
         break;
       }
 
@@ -271,7 +278,7 @@ export class LiveClient {
 
       case 'session_closed': {
         console.log('🔒 [LiveClient] Session closed by server');
-        this.stop();
+        this.stop(this.state === 'ERROR');
         break;
       }
 
@@ -357,12 +364,15 @@ export class LiveClient {
         }
 
         const isSecurityChallenge = name === 'triggerDevChallenge' || name === 'triggerRebootChallenge' || name === 'rebootChallenge';
+        if (isSecurityChallenge) {
+          this.suppressNextAudioTurn = true;
+        }
         functionResponses.push({
           id,
           name,
           response: {
             output: isSecurityChallenge
-              ? { status: 'success', notice: 'On-screen password modal displayed. DO NOT speak or repeat spoken prompt.' }
+              ? { status: 'success', instruction: 'Password modal is open on user screen. Stay completely silent now. Do NOT speak or repeat the prompt.' }
               : result,
           },
         });
@@ -445,15 +455,16 @@ export class LiveClient {
   /**
    * Send auth update event to Gemini Live and immediately clear old audio queues
    */
-  sendAuthUpdate(isDeveloper: boolean): void {
+  sendAuthUpdate(isDeveloper: boolean, silent: boolean = false): void {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      console.log(`🔐 [LiveClient] Sending auth update (isDeveloper=${isDeveloper}) to Gemini Live session`);
+      console.log(`🔐 [LiveClient] Sending auth update (isDeveloper=${isDeveloper}, silent=${silent}) to Gemini Live session`);
       this.playbackQueue.interrupt();
       this.isSpeaking = false;
       this.ws.send(
         JSON.stringify({
           type: 'auth_update',
           isDeveloper,
+          silent,
         })
       );
     }

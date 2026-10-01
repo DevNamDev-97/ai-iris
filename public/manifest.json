@@ -1,0 +1,17 @@
+{
+  "name": "Iris AI Assistant",
+  "short_name": "Iris",
+  "description": "Production-ready real-time voice AI assistant I.R.I.S.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#090d16",
+  "theme_color": "#06b6d4",
+  "icons": [
+    {
+      "src": "/iris-icon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -136,11 +136,11 @@ export const FuturisticScrollTrack: React.FC<FuturisticScrollTrackProps> = ({
       }}
       onMouseLeave={() => setIsHovered(false)}
     >
-      {/* Actual Scrollable Content (Native scrollbar hidden) */}
+      {/* Actual Scrollable Content (Native scrollbar completely hidden) */}
       <div
         ref={contentRef}
         onScroll={handleScroll}
-        className="w-full h-full overflow-y-auto no-scrollbar"
+        className="w-full h-full overflow-y-auto no-scrollbar [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
         style={{
           scrollbarWidth: 'none',
           msOverflowStyle: 'none',

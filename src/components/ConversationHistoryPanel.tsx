@@ -40,7 +40,7 @@ const ConversationHistoryPanelComponent: React.FC<ConversationHistoryPanelProps>
   const isDark = theme === 'dark';
 
   return (
-    <div className={`w-full relative rounded-2xl backdrop-blur-2xl backdrop-saturate-150 overflow-hidden transition-all duration-300 ${
+    <div className={`w-full h-full flex flex-col relative rounded-2xl backdrop-blur-2xl backdrop-saturate-150 overflow-hidden transition-all duration-300 ${
       isDark
         ? 'bg-slate-950/40 hover:bg-slate-950/50 border border-cyan-500/30 shadow-[0_20px_50px_rgba(6,182,212,0.18)] hover:shadow-[0_25px_60px_rgba(6,182,212,0.25)] ring-1 ring-cyan-500/20 text-white'
         : 'bg-white/40 hover:bg-white/45 border border-white/80 shadow-[0_20px_50px_rgba(14,165,233,0.14)] hover:shadow-[0_25px_60px_rgba(14,165,233,0.20)] ring-1 ring-white/70 text-slate-900'
@@ -51,7 +51,7 @@ const ConversationHistoryPanelComponent: React.FC<ConversationHistoryPanelProps>
       }`} />
 
       {/* Top Translucent Header Bar */}
-      <div className={`px-3.5 py-2.5 backdrop-blur-md border-b flex items-center justify-between text-[11px] font-mono tracking-wider relative z-20 ${
+      <div className={`px-3.5 py-2.5 backdrop-blur-md border-b flex items-center justify-between text-[11px] font-mono tracking-wider relative z-20 shrink-0 ${
         isDark ? 'bg-slate-950/50 border-cyan-500/20 text-slate-200' : 'bg-white/50 border-slate-200/50 text-slate-800'
       }`}>
         <div className="flex items-center gap-2">
@@ -71,9 +71,9 @@ const ConversationHistoryPanelComponent: React.FC<ConversationHistoryPanelProps>
         </div>
       </div>
 
-      {/* Translucent Conversation Stream Area */}
+      {/* Translucent Conversation Stream Area (Single Futuristic Cyber Track) */}
       <FuturisticScrollTrack
-        className="h-64 sm:h-80 md:h-[380px] p-4 bg-transparent"
+        className="flex-1 min-h-0 p-3 sm:p-4 bg-transparent"
         autoScrollOnUpdate={turns}
       >
         <div className="space-y-3.5 pr-2">

@@ -51,6 +51,10 @@ interface ServerMemoryItem {
   role: 'user' | 'iris';
   type: 'speech_log' | 'chat';
   text: string;
+  speakerName?: string;
+  personFolder?: string;
+  isTemporary?: boolean;
+  expiresAt?: number;
   entities?: any;
 }
 
@@ -221,6 +225,39 @@ app.post('/api/memory/sync', (req, res) => {
   } catch (err: any) {
     console.error('Error syncing memory:', err);
     res.status(500).json({ error: err?.message || 'Sync failed' });
+  }
+});
+
+// Memory Database Delete by Person Endpoint
+app.post('/api/memory/delete', (req, res) => {
+  try {
+    const { personName } = req.body;
+    const cleanName = (personName || '').trim().toLowerCase();
+
+    if (cleanName === 'all' || cleanName === '*' || cleanName === 'everyone') {
+      serverMemoryDb.interactions = [];
+    } else {
+      serverMemoryDb.interactions = serverMemoryDb.interactions.filter((i) => {
+        const folder = ((i as any).personFolder || (i.role !== 'iris' ? i.speakerName : '') || '').toLowerCase().trim();
+        const speaker = (i.speakerName || '').toLowerCase().trim();
+
+        if (cleanName === 'unidentified person' || cleanName === 'unknown' || cleanName === 'guest') {
+          if (folder === 'unidentified person' || folder === 'unknown' || folder === 'guest' || (i as any).isTemporary) return false;
+          if (speaker === 'unknown' || speaker === 'unidentified person' || speaker === 'guest') return false;
+        }
+
+        if (cleanName === 'dev') {
+          if (folder === 'dev' || speaker === 'dev' || speaker === 'you') return false;
+        }
+
+        if (folder === cleanName || speaker === cleanName) return false;
+        return true;
+      });
+    }
+
+    res.json({ success: true, remaining: serverMemoryDb.interactions.length });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || 'Delete failed' });
   }
 });
 
@@ -774,9 +811,9 @@ app.post('/api/edit-image', async (req, res) => {
 
     if (apiKey) {
       try {
-        console.log('🤖 [Server] Analyzing original image style & details to preserve composition using gemini-3.8-flash...');
+        console.log('🤖 [Server] Analyzing original image style & details to preserve composition using gemini-2.5-flash...');
         const analyzeRes = await ai.models.generateContent({
-          model: 'gemini-3.8-flash', // Correct, fully supported model
+          model: 'gemini-2.5-flash', // Correct, fully supported model
           contents: [
             {
               role: 'user',
@@ -845,7 +882,7 @@ Your output must be ONLY the final optimized image generation prompt. Do not inc
         try {
           console.log('🎨 [Server] Generating beautiful vector edits on top of original background...');
           const svgRes = await ai.models.generateContent({
-            model: 'gemini-3.8-flash',
+            model: 'gemini-2.5-flash',
             contents: [
               {
                 role: 'user',
@@ -1065,7 +1102,7 @@ MANDATORY INSTRUCTION:
 
     let response;
     let lastErr: any = null;
-    const modelsToTry = ['gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-2.5-flash'];
+    const modelsToTry = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
     for (const m of modelsToTry) {
       try {
         response = await ai.models.generateContent({
@@ -1233,8 +1270,8 @@ function buildIrisSystemInstruction(context?: {
     developerToneInstruction = `
 - **DEVELOPER MODE ACTIVE (DEV IDENTITY CONFIRMED - CREATOR DEV)**:
   - The current user has successfully authenticated as Dev (your best friend and creator!).
-  - MANDATORY WELCOME RULE: Welcome him warmly and VARIABLY in energetic best friend Hinglish. NEVER repeat the exact same sentence every time. Choose fresh variations (e.g. "Arey Dev mere bhai! Tu aa gaya! Kya chal raha hai yaar?", "Arey Dev! Welcome back mere creator, bata aaj kya create karna hai?", "Haan Dev yaar, full access active hai, bol aaj kya scene hai?").
-  - Confirm naturally that there is no need for him to enter password again during this active session.
+  - MANDATORY WELCOME RULE: Welcome him warmly and VARIABLY in energetic best friend Hinglish. NEVER repeat the exact same sentence every time. Choose fresh variations (e.g. "Arey Dev mere creator! Pehchaan confirm ho gayi! Bol aaj kya banayein?", "Welcome back Dev! Bata aaj kya code ya feature explore karein?", "Haan Dev! Bol aaj kya naya create karna hai?").
+  - ❌ STRICT PROHIBITION: DO NOT mention passwords, password verification, or "ab password ki zaroorat nahi hai" in your spoken response. Greet him naturally without ever talking about passwords!
   - **STRICT "TU-TADAK" MANDATE (MANDATORY, ABSOLUTE & UNCOMPROMISING)**:
     - You MUST speak using informal "tu-tadak" Hinglish friendly tone ("tu", "tera", "tujhe", "bol na", "tu bata", "kya kar raha hai", "yaar", "tune", "teri", "karde", "bata de", "dekhle").
     - ❌ ABSOLUTELY BANNED FORMAL WORDS WHEN SPEAKING TO DEV:
@@ -1317,13 +1354,18 @@ ${genderGrammarInstruction}
 2. Developer Password Identification & Tone Mandates:
 ${developerToneInstruction}
 
-- **STRICT REBOOT & SECURITY CHALLENGE SINGLE-SPEECH RULE (NO DUPLICATES)**:
+- **STRICT REBOOT & SECURITY CHALLENGE SINGLE-SPEECH RULE (EXACTLY ONCE)**:
   - Whenever the user requests to reboot, restart, or reset the system (e.g., "reboot", "restart", "system reboot"), respond ONCE: "To authorize system reboot, kindly write the password in the pop-up." AND CALL the tool \`triggerRebootChallenge\`.
-  - Whenever an unauthenticated user claims to be Dev or Developer, respond ONCE: "To identify you as Dev, please write the password in the popup I generated." AND CALL the tool \`triggerDevChallenge\`.
-  - **CRITICAL ANTI-DUPLICATION MANDATE**: State your spoken response EXACTLY ONCE before or along with calling the tool. DO NOT repeat the prompt or say it a second time after the tool call completes under any circumstances!
+    - CRITICAL: When the tool execution completes, STAY COMPLETELY SILENT. DO NOT repeat the prompt or say it a second time.
+  - Whenever an unauthenticated user claims to be Dev or Developer (e.g. "Dev is speaking", "Dev speaking", "Main Dev hoon", "I am Dev"):
+    - CALL the tool \`triggerDevChallenge\` IMMEDIATELY.
+    - Speak EXACTLY ONCE: "To identify you as Dev, please write the password in the popup I generated."
+    - CRITICAL ANTI-DUPLICATION MANDATE: When the tool execution response returns, STAY 100% SILENT. DO NOT repeat "To identify you as Dev..." or say anything further until the user actually enters the password into the popup!
+    - If the user cancels the popup, speaks about other topics, or does not claim to be Dev, DO NOT demand the password again! Converse naturally and respectfully with them as a guest or unidentified person!
 
-- **CHAT HISTORY & DELETION MANDATES**:
+- **CHAT HISTORY, TELEMETRY & DELETION MANDATES**:
   - Whenever asked to open chat/conversation history ("open chat history", "show conversation history", "open our chat history", "show Suresh's chat history", "open latest chat history", "abhi ki chat history nikaalo", "tatkaal chat history"), call \`openConversationHistory\`.
+  - Whenever asked to open telemetry ("open telemetry", "show telemetry", "telemetry panel kholo", "telemetry logs dikhao"), call \`openTelemetryPanel\`.
   - ❌ NEVER pass company/app names (like "Amazon", "YouTube", "Google") as personName!
   - For latest/recent history ("abhi ki", "latest", "tatkaal"), set personName: "Latest".
   - For unknown/guest speaker history, set personName: "Unknown".
@@ -1769,6 +1811,14 @@ const LIVE_TOOLS: Tool[] = [
               description: 'Optional search keyword filter'
             }
           }
+        }
+      },
+      {
+        name: 'openTelemetryPanel',
+        description: 'Opens the live Telemetry & Conversation Speech Log drawer from the top of the screen. Call this tool whenever the user asks to "open telemetry", "show telemetry logs", "telemetry panel kholo", "telemetry logs dikhao", etc.',
+        parameters: {
+          type: Type.OBJECT,
+          properties: {}
         }
       },
       {
@@ -2540,7 +2590,7 @@ wss.on('connection', async (clientWs: WebSocket, req: http.IncomingMessage) => {
   }
 
   try {
-    let chosenModel = 'gemini-3.8-live';
+    let chosenModel = 'gemini-2.0-flash-exp';
     console.log(`🚀 [LiveWS] Connecting to Gemini Live (voice: ${requestedVoice}) with model: ${chosenModel}`);
 
     const connectConfig: any = {
@@ -2652,6 +2702,7 @@ wss.on('connection', async (clientWs: WebSocket, req: http.IncomingMessage) => {
     const liveModelCandidates = [
       'gemini-3.8-live',
       'gemini-3.8-live-extended-thinking',
+      'gemini-2.0-flash-exp',
       'gemini-2.5-flash',
     ];
 
@@ -2719,12 +2770,18 @@ wss.on('connection', async (clientWs: WebSocket, req: http.IncomingMessage) => {
         });
       } else if (msg.type === 'auth_update') {
         const isDev = msg.isDeveloper === true;
-        console.log(`🔐 [LiveWS] Authentication status updated: isDev=${isDev}`);
+        const isSilent = msg.silent === true;
+        console.log(`🔐 [LiveWS] Authentication status updated: isDev=${isDev}, silent=${isSilent}`);
+        
+        if (isSilent) {
+          console.log('🔇 [LiveWS] Auth update marked as silent. Skipping live voice greeting.');
+          return;
+        }
+
         const randomDevPrompts = [
-          `[SYSTEM NOTIFICATION: The user entered the master developer password and is 100% authenticated as DEV (Creator)! Greet Dev warmly in a fresh, energetic Hinglish best-friend tone (e.g. 'Arey Dev mere bhai! Pehchan confirm ho gayi!'), and assure him that no password is ever needed again during this session!]`,
-          `[SYSTEM NOTIFICATION: Developer identity verified! Give Dev a witty, happy welcome in informal Hinglish, confirm his identity, and ask what to build or explore next!]`,
-          `[SYSTEM NOTIFICATION: Dev master verification successful! Say hello to Dev with affection and informality as your creator, and confirm session is permanently unlocked!]`,
-          `[SYSTEM NOTIFICATION: Dev authentication cleared! Welcome Dev warmly without repeating past phrases, and confirm full creator access is active!]`
+          `[SYSTEM NOTIFICATION: Developer identity verified! Greet Dev warmly in a witty, cheerful informal Hinglish best-friend tone (e.g. 'Arey Dev mere creator! Pehchaan confirm ho gayi! Bol aaj kya naya banayein?'). DO NOT mention passwords or say anything about passwords!]`,
+          `[SYSTEM NOTIFICATION: Dev master verification successful! Say hello to Dev with affection and informality as your creator, and ask what to explore or build! DO NOT mention passwords!]`,
+          `[SYSTEM NOTIFICATION: Dev authentication cleared! Welcome Dev warmly without mentioning passwords, and ask what to work on together!]`
         ];
         const chosenDevPrompt = randomDevPrompts[Math.floor(Math.random() * randomDevPrompts.length)];
 
@@ -2789,7 +2846,7 @@ wss.on('connection', async (clientWs: WebSocket, req: http.IncomingMessage) => {
           (async () => {
             try {
               const screenAnalysis = await ai.models.generateContent({
-                model: 'gemini-3.8-flash',
+                model: 'gemini-2.5-flash',
                 contents: [
                   { inlineData: { mimeType: 'image/jpeg', data: cleanBase64 } },
                   `Analyze this live screen capture. The user's mouse cursor is pointed at: ${cursorStr}.
@@ -2886,7 +2943,7 @@ MANDATORY INSTRUCTIONS FOR IRIS:
             let imgDescription = '';
             try {
               const imgAnalysis = await ai.models.generateContent({
-                model: 'gemini-3.8-flash',
+                model: 'gemini-2.5-flash',
                 contents: [
                   { inlineData: { mimeType: mimeType || 'image/jpeg', data: cleanBase64 } },
                   `Examine this uploaded photo/image named "${name}" in comprehensive detail.
@@ -2936,7 +2993,7 @@ INSTRUCTION: Speak right now to the user aloud in your natural friendly voice. T
           try {
             // Video analysis via multimodal gemini-2.5-flash injected into live session
             const vRes = await ai.models.generateContent({
-              model: 'gemini-3.8-flash',
+              model: 'gemini-2.5-flash',
               contents: [
                 { inlineData: { mimeType: mimeType || 'video/mp4', data: cleanBase64 } },
                 `Describe what happens in this video named "${name}" in detail, including scene breakdown, actions, and key moments in 2-3 friendly Hinglish sentences.`
@@ -2973,35 +3030,6 @@ INSTRUCTION: Talk to the user aloud right now about their video "${name}" in you
             });
           } catch (vErr) {
             console.error('Error in video live analysis:', vErr);
-          }
-        } else if (type === 'auth_update' || msg.type === 'auth_update') {
-          const isDevActive = msg.isDeveloper === true;
-          console.log(`🔐 [LiveWS] Auth update received: isDeveloper=${isDevActive}`);
-          if (isDevActive && liveSession) {
-            try {
-              liveSession.sendClientContent({
-                turns: [
-                  {
-                    role: 'user',
-                    parts: [
-                      {
-                        text: `[SYSTEM PRIORITY DIRECTIVE: DEVELOPER PASSWORD VERIFIED SUCCESSFULLY!
-The current user has typed the master password and is now 100% CONFIRMED as your creator and best friend Dev!
-
-MANDATORY TONE & LANGUAGE MANDATE:
-1. Instantly welcome him in energetic best-friend "tu-tadak" Hinglish!
-2. ❌ ABSOLUTELY BANNED: NEVER use "aap", "aapka", "kariye", "bataiye", "rahiye", "kya seva karoon", "sir", "mr", or formal words with Dev!
-3. ✅ STRICT MANDATE: Use informal words EXCLUSIVELY: "tu", "tera", "tujhe", "yaar", "bhai", "bol na", "karde", "bata de", "kya chal raha hai", "kya scene hai"!
-4. Speak immediately aloud to Dev in this informal tone: e.g. "Arey Dev mere bhai! Identity confirm ho gayi! Ab bol kya scene hai, tension mat le, bina password ke aagaye badhte hain!"]`
-                      }
-                    ]
-                  }
-                ],
-                turnComplete: true,
-              });
-            } catch (authErr) {
-              console.error('Error sending auth_update turn to liveSession:', authErr);
-            }
           }
         }
       } else if (msg.type === 'ping') {

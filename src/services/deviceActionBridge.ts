@@ -2420,6 +2420,16 @@ export class DeviceActionBridge {
       case 'openChatHistory':
       case 'showConversationHistory':
       case 'showChatHistory':
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(
+            new CustomEvent('iris-open-history', {
+              detail: {
+                personName: args.personName || args.name || 'All',
+                query: args.query || '',
+              },
+            })
+          );
+        }
         return {
           action: 'openConversationHistory',
           success: true,
@@ -2430,9 +2440,30 @@ export class DeviceActionBridge {
           },
         };
 
+      case 'openTelemetryPanel':
+      case 'showTelemetry':
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('iris-open-telemetry'));
+        }
+        return {
+          action: 'openTelemetryPanel',
+          success: true,
+          message: 'Opening live telemetry panel.',
+          data: { open: true },
+        };
+
       case 'triggerDeleteHistoryChallenge':
       case 'deleteConversationHistory':
       case 'deleteChatHistory':
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(
+            new CustomEvent('iris-delete-history-challenge', {
+              detail: {
+                personName: args.personName || args.name || 'All',
+              },
+            })
+          );
+        }
         return {
           action: 'triggerDeleteHistoryChallenge',
           success: true,
